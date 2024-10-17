@@ -97,7 +97,7 @@ pub mod file {
         use std::io::Read;
         let mut rdr = BufReader::new(File::open(path)?);
         let mut buf = Default::default();
-        rdr.read_to_string(&mut buf);
+        rdr.read_to_string(&mut buf)?;
         Ok(buf
             .split_whitespace()
             .map(|s| s.into())

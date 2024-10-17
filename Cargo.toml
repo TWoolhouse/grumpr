@@ -1,6 +1,6 @@
 [package]
 name = "grumpr"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Thomas Woolhouse <thomasrwoolhouse@gmail.com>"]
 description = "A tool for searching and finding words."
@@ -11,10 +11,11 @@ license = "MIT"
 [dependencies]
 csv = "1.2.1"
 serde = { version = "1.0.159", features = ["derive"] }
-itertools = "0.10.5"
+itertools = "0.13.0"
 regex = "1.7.3"
 clap = { version = "4.2.1", features = ["cargo", "derive", "string"] }
 indoc = "2.0.1"
 thiserror = "1.0.40"
 unicode-segmentation = "1.10.1"
 unicode_categories = "0.1.1"
+cached = "0.52.0"

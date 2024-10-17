@@ -3,9 +3,10 @@ use std::{fs::File, path::PathBuf};
 use clap::{builder::TypedValueParser, ArgMatches};
 use grumpr::{
     dataset,
-    gram::{Book, Corpus, Display},
+    gram::{self, Book, Corpus, Display},
 };
 use indoc::indoc;
+use itertools::Itertools;
 use regex::Regex;
 use thiserror::Error;
 
@@ -165,6 +166,37 @@ fn entry() -> Result<(), Error> {
             )
             .map_err(|_| Error::NoAnagrams(ngram.clone()))
         }),
+        Some(("fuzzy", command)) => run_with_corpus(&cli, |corpus| {
+            let ngram = command
+                .get_one::<String>("ngram")
+                .expect("ngram is required");
+
+            print_corpus(
+                corpus.fuzzy_find(
+                    ngram,
+                    command
+                        .get_one::<usize>("ngrams_count")
+                        .copied()
+                        .unwrap_or(corpus.len()),
+                ),
+                command,
+                Display {
+                    string: true,
+                    ..Default::default()
+                },
+            )
+            .map_err(|_| Error::NotInCorpus(ngram.clone()))
+        }),
+        Some(("levenshtein", command)) => {
+            let ngrams: Vec<String> = command
+                .get_many("ngram")
+                .expect("ngrams are required")
+                .cloned()
+                .collect_vec();
+            let dist = gram::levenshtein(&ngrams[0], &ngrams[1]);
+            println!("{}", dist);
+            Ok(())
+        }
         Some(("match", command)) => run_with_corpus(&cli, |corpus| {
             let pattern = command
                 .get_one::<String>("pattern")
@@ -360,6 +392,33 @@ fn cli() -> clap::Command {
                 Finds anagrams of the ngram within the corpus.
                 The anagrams are returned in order of their rank.
                 The ngram does not have to be in the corpus in the first place."}))
+        .subcommand(Command::new("fuzzy")
+            .arg(Arg::new("ngram")
+                .required(true)
+                .action(ArgAction::Set)
+                .value_parser(value_parser!(String))
+                .help("The ngram to search for in the corpus"))
+            .arg(rank_rank.clone())
+            .arg(rank_freq.clone())
+            .arg(rank_count.clone())
+            .arg(results_size.clone())
+            .about("Find words similar to the given ngram")
+            .long_about(indoc! {"
+                Finds words similar to the ngram within the corpus.
+                The words are returned in order of their levenshtein distance.
+                The ngram does not have to be in the corpus in the first place."}))
+        .subcommand(Command::new("levenshtein")
+            .alias("lev")
+            .arg(Arg::new("ngram")
+                .required(true)
+                .action(ArgAction::Set)
+                .num_args(2)
+                .value_parser(value_parser!(String))
+                .help("The ngrams to compute the distance between"))
+            .about("Compute the levenshtein distance between two ngrams")
+            .long_about(indoc! {"
+                Compute the levenshtein distance between two arbitrary ngrams.
+                The ngrams do not have to be in the corpus in the first place."}))
         .subcommand(Command::new("match")
             .arg(Arg::new("pattern")
                 .required(true)

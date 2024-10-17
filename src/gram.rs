@@ -1,6 +1,7 @@
-use std::{collections::HashMap, marker::PhantomData};
-
+use cached::proc_macro::cached;
+use itertools::Itertools;
 use regex::Regex;
+use std::{collections::HashMap, marker::PhantomData};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Root {
@@ -223,8 +224,43 @@ impl<'a> Corpus<'a> {
             .collect()
     }
 
-    pub fn fuzzy_find(&'a self) -> Corpus<'a> {
-        todo!("Fuzzy Find words based on levenshtein distance & freq")
+    pub fn fuzzy_find(&'a self, ngram: &str, results: usize) -> Corpus<'a> {
+        let mut queue: Vec<(&Gram, usize)> = vec![(&self.grams[0], usize::MAX)];
+        for gram in self.iter() {
+            // Skip if the queue is full and the current gram cannot be better than the last
+            // because the length difference is too great.
+            if queue.len() > results && {
+                ngram.len().abs_diff(gram.root.string.len()) > queue.last().unwrap().1
+            } {
+                continue;
+            }
+
+            let distance = levenshtein(gram.string, ngram);
+            if distance > queue[queue.len() - 1].1 {
+                continue;
+            }
+            for (index, (_, other)) in queue.iter().enumerate() {
+                if distance <= *other {
+                    queue.insert(index, (gram, distance));
+                    for (index, (lhs, rhs)) in
+                        queue.iter().tuple_windows().enumerate().skip(results)
+                    {
+                        if lhs.1 < rhs.1 {
+                            queue.truncate(index);
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        queue
+            .into_iter()
+            .filter(|(_, distance)| *distance != usize::MAX)
+            .rev()
+            .map(|(gram, _)| gram)
+            .collect()
     }
 
     pub fn display(&'a self, flags: Display) -> CorpusDisplay<'a> {
@@ -263,5 +299,29 @@ impl Book {
 impl<'a> From<&'a Root> for Gram<'a> {
     fn from(value: &'a Root) -> Self {
         Gram::new(value, 0.0)
+    }
+}
+
+#[cached(
+    size = 10_000_000,
+    key = "String",
+    convert = r#"{ format!("{}#{}", a, b) }"#
+)]
+pub fn levenshtein(a: &str, b: &str) -> usize {
+    if b.len() == 0 {
+        a.len()
+    } else if a.len() == 0 {
+        b.len()
+    } else if a.chars().next().unwrap() == b.chars().next().unwrap() {
+        levenshtein(&a[1..], &b[1..])
+    } else {
+        1 + [
+            levenshtein(&a[1..], b),
+            levenshtein(a, &b[1..]),
+            levenshtein(&a[1..], &b[1..]),
+        ]
+        .iter()
+        .min()
+        .unwrap()
     }
 }
