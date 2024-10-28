@@ -14,6 +14,8 @@ use thiserror::Error;
 enum Error {
     #[error("Unable to load the corpus: {0}")]
     Corpus(#[from] std::io::Error),
+    #[error("Corpus is empty")]
+    EmptyCorpus,
     #[error("The ngram: '{0}' is not in the corpus")]
     NotInCorpus(String),
     #[error("The ngram: '{0}' has no anagrams in the corpus")]
@@ -35,9 +37,9 @@ fn main() {
     }
 }
 
-fn print_corpus(corpus: Corpus, matches: &clap::ArgMatches, display: Display) -> Result<(), ()> {
+fn print_corpus(corpus: Corpus, matches: &clap::ArgMatches, display: Display) -> Result<(), Error> {
     if corpus.is_empty() {
-        Err(())
+        Err(Error::EmptyCorpus)
     } else {
         let corpus = if let Some(limit) = matches.get_one::<usize>("ngrams_count") {
             corpus.truncate(*limit)
@@ -211,6 +213,46 @@ fn entry() -> Result<(), Error> {
                 },
             )
             .map_err(|_| Error::NoMatches(pattern.to_owned()))
+        }),
+        Some(("stat", command)) => run_with_corpus(&cli, |corpus| {
+            let summary = command.get_one::<String>("summary").expect("has default");
+            let extra_info = (summary != "none" && !corpus.is_empty()).then(|| {
+                let grams_unique = corpus.len() as u64;
+                let grams_total = corpus.grams.iter().map(|g| g.root.count).sum::<u64>();
+                let chars = corpus
+                    .grams
+                    .iter()
+                    .map(|g| g.string.len() as u64)
+                    .sum::<u64>();
+                let ws_total = chars * grams_total / grams_unique + grams_total - 1;
+                format!(
+                    "Grams: Unique({}) Total({})\nChars: Unique({}) Total({}) TotalWS({}) PerGram({:.5})\nMisc : Pages({:.2})",
+                    grams_unique,
+                    grams_total,
+                    chars,
+                    chars * grams_total / grams_unique,
+                    ws_total,
+                    chars as f64 / grams_unique as f64,
+                    ws_total as f64 / 3000.0
+                )
+            });
+            let res = if summary != "only" {
+                print_corpus(
+                    corpus,
+                    command,
+                    Display {
+                        string: true,
+                        ..Default::default()
+                    },
+                )
+            } else {
+                Ok(())
+            };
+            if let Some(extra_info) = extra_info {
+                let nl = if summary != "only" { "\n" } else { "" };
+                println!("{nl}{extra_info}");
+            }
+            res
         }),
         Some(("corpus", command)) => {
             let text_iterator = command
@@ -425,14 +467,28 @@ fn cli() -> clap::Command {
                 .action(ArgAction::Set)
                 .value_parser(value_parser!(String))
                 .help("The regex pattern to match against ngrams in the corpus"))
-            .arg(rank_rank)
-            .arg(rank_freq)
-            .arg(rank_count)
-            .arg(results_size)
+            .arg(rank_rank.clone())
+            .arg(rank_freq.clone())
+            .arg(rank_count.clone())
+            .arg(results_size.clone())
             .about("Finds ngrams that match the regex pattern")
             .long_about(indoc! {"
                 Finds ngrams in the corpus that match the regex pattern.
                 The ngrams are returned in order of their rank."}))
+        .subcommand(Command::new("stat")
+            .arg(rank_rank)
+            .arg(rank_freq)
+            .arg(rank_count)
+            .arg(results_size)
+            .arg(Arg::new("summary")
+                .short('i')
+                .long("info")
+                .action(ArgAction::Set)
+                .num_args(0..=1)
+                .value_parser(["all", "only", "none"])
+                .default_value("all")
+                .default_missing_value("only"))
+            .about("Display information about the corpus itself"))
         .subcommand(Command::new("corpus")
             .arg(Arg::new("output_file")
                 .short('o')
