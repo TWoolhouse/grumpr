@@ -1,8 +1,10 @@
+use core::str;
 use std::{
     collections::HashMap,
-    io::{BufReader, Read},
+    io::{BufRead, BufReader, Read},
 };
 
+use encoding_rs_io::DecodeReaderBytesBuilder;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 
@@ -57,14 +59,19 @@ pub fn generate(text: impl IntoIterator<Item = String>, threshold: u64) -> Book 
 }
 
 pub fn extract_raw(rdr: impl Read) -> impl Iterator<Item = String> {
-    use std::io::BufRead;
     use unicode_segmentation::UnicodeSegmentation;
-    let rdr = BufReader::new(rdr);
+    let rdr = BufReader::new(
+        DecodeReaderBytesBuilder::new()
+            .bom_override(true)
+            .encoding(Some(encoding_rs::WINDOWS_1252))
+            .build(rdr),
+    );
+
     rdr.lines().flat_map(|line| {
         line.unwrap()
             .split_word_bounds()
             .map(|word| word.to_string())
-            .collect::<Vec<_>>()
+            .collect_vec()
     })
 }
 
