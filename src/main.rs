@@ -26,6 +26,8 @@ enum Error {
     RegexPattern(#[from] regex::Error),
     #[error("The rank: '{0}' is too large for the corpus of size: '{1}'")]
     Rank(usize, usize),
+    #[error("The position '{1}' stated for character '0' is beyond the length of the desired word '{2}'")]
+    CharLocation(char, usize, usize),
 }
 
 fn main() {
@@ -254,6 +256,61 @@ fn entry() -> Result<(), Error> {
             }
             res
         }),
+        Some(("wordle", command)) => run_with_corpus(&cli, |corpus| {
+            fn turn_char_pos_into_pos_map<'a>(
+                length: usize,
+                it: impl Iterator<Item = &'a (char, usize)>,
+            ) -> Result<Vec<String>, Error> {
+                let mut pos_map = vec![String::new(); length];
+                for (char, pos) in it.copied() {
+                    pos_map
+                        .get_mut(pos - 1)
+                        .ok_or_else(|| Error::CharLocation(char, pos, length))?
+                        .push(char);
+                }
+                Ok(pos_map)
+            }
+            let length = command
+                .get_one::<u16>("length")
+                .expect("default")
+                .to_owned() as usize;
+
+            let pattern_not = command
+                .get_many::<String>("not")
+                .map(|mut strings| strings.join(""))
+                .unwrap_or_default();
+            let pattern_has = command
+                .get_many::<(char, usize)>("has")
+                .map(|pairs| turn_char_pos_into_pos_map(length, pairs))
+                .unwrap_or_else(|| Ok(vec![String::new(); length]))?;
+            let pattern_is = command
+                .get_many::<(char, usize)>("is")
+                .map(|pairs| turn_char_pos_into_pos_map(length, pairs))
+                .unwrap_or_else(|| Ok(vec![String::new(); length]))?;
+
+            let pattern = (0..length)
+                .map(|i| {
+                    if !pattern_is[i].is_empty() {
+                        pattern_is[i].clone()
+                    } else if !pattern_has[i].is_empty() {
+                        format!("[^{}]", pattern_not.clone() + &pattern_has[i])
+                    } else {
+                        format!("[^{}]", pattern_not)
+                    }
+                })
+                .join("");
+            let pattern = format!("^{pattern}$");
+
+            print_corpus(
+                corpus.wildcard(Regex::new(&pattern)?),
+                command,
+                Display {
+                    string: true,
+                    ..Default::default()
+                },
+            )
+            .map_err(|_| Error::NoMatches(pattern))
+        }),
         Some(("corpus", command)) => {
             let text_iterator = command
                 .get_many::<PathBuf>("input_file")
@@ -290,6 +347,41 @@ fn entry() -> Result<(), Error> {
 
 fn cli() -> clap::Command {
     use clap::*;
+    use std::str::FromStr;
+
+    fn parse_key_val<T: FromStr, U: FromStr>(input: &str) -> Result<(T, U), String>
+    where
+        <T as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+        <U as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+    {
+        let idx = input.trim().find('=');
+        if let Some(idx) = idx {
+            let char = input[..idx].parse().map_err(|e: T::Err| e.to_string())?;
+            let location = input[idx + 1..]
+                .parse()
+                .map_err(|e: U::Err| e.to_string())?;
+            Ok((char, location))
+        } else {
+            Err(format!("invalid KEY=value: no `=` found in `{}`", input))
+        }
+    }
+
+    fn parse_char_pos(input: &str) -> Result<(char, usize), String> {
+        match parse_key_val::<char, usize>(input) {
+            Ok((char, location)) => {
+                if location < 1 {
+                    return Err(format!(
+                        "invalid position '{location}': must be greater than 0"
+                    ));
+                }
+                if !char.is_alphabetic() {
+                    return Err(format!("invalid character '{char}': must be alphabetic"));
+                }
+                Ok((char, location))
+            }
+            e => e,
+        }
+    }
 
     // .arg(clap::Arg::new("corpus").short('c').long("corpus"))
     let rank_rank = Arg::new("rank_rank")
@@ -467,14 +559,47 @@ fn cli() -> clap::Command {
                 .action(ArgAction::Set)
                 .value_parser(value_parser!(String))
                 .help("The regex pattern to match against ngrams in the corpus"))
+                .arg(rank_rank.clone())
+                .arg(rank_freq.clone())
+                .arg(rank_count.clone())
+                .arg(results_size.clone())
+                .about("Finds ngrams that match the regex pattern")
+                .long_about(indoc! {"
+                Finds ngrams in the corpus that match the regex pattern.
+                The ngrams are returned in order of their rank."}))
+        .subcommand(Command::new("wordle")
             .arg(rank_rank.clone())
             .arg(rank_freq.clone())
             .arg(rank_count.clone())
             .arg(results_size.clone())
-            .about("Finds ngrams that match the regex pattern")
-            .long_about(indoc! {"
-                Finds ngrams in the corpus that match the regex pattern.
-                The ngrams are returned in order of their rank."}))
+            .arg(Arg::new("not")
+                .long("not")
+                .action(ArgAction::Append)
+                .num_args(1..)
+                .value_name("LETTER")
+                .value_parser(value_parser!(String))
+                .help("List of letters that are certainly not in the final word"))
+            .arg(Arg::new("has")
+                .long("has")
+                .action(ArgAction::Append)
+                .num_args(1..)
+                .value_name("LETTER=POSITION")
+                .value_parser(builder::ValueParser::new(parse_char_pos))
+                .help("List of letters that have been found in the final word at a specific position, but that position is incorrect"))
+            .arg(Arg::new("is")
+                .long("is")
+                .action(ArgAction::Append)
+                .num_args(1..)
+                .value_name("LETTER=POSITION")
+                .value_parser(builder::ValueParser::new(parse_char_pos))
+                .help("List of letters that are at exactly the correct position in the final word"))
+            .arg(Arg::new("length")
+                .short('l')
+                .long("length")
+                .value_parser(value_parser!(u16).range(1..))
+                .default_value("5")
+                .help("Length of the target ngram"))
+            .about("Try to solve a wordle-esk puzzle"))
         .subcommand(Command::new("stat")
             .arg(rank_rank)
             .arg(rank_freq)
