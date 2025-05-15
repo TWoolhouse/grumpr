@@ -1,4 +1,4 @@
-use std::{fs::File, path::PathBuf};
+use std::{fs::File, path::PathBuf, process::ExitCode};
 
 use clap::{builder::TypedValueParser, ArgMatches};
 use grumpr::{
@@ -12,30 +12,31 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 enum Error {
-    #[error("Unable to load the corpus: {0}")]
+    #[error("Unable to load the corpus - {0}")]
     Corpus(#[from] std::io::Error),
     #[error("Corpus is empty")]
     EmptyCorpus,
-    #[error("The ngram: '{0}' is not in the corpus")]
+    #[error("The ngram '{0}' is not in the corpus")]
     NotInCorpus(String),
-    #[error("The ngram: '{0}' has no anagrams in the corpus")]
+    #[error("The ngram '{0}' has no anagrams in the corpus")]
     NoAnagrams(String),
-    #[error("The pattern: '{0}' is not contained within the corpus")]
+    #[error("The pattern '{0}' is not contained within the corpus")]
     NoMatches(String),
     #[error("The regex pattern is invalid: {0}")]
     RegexPattern(#[from] regex::Error),
-    #[error("The rank: '{0}' is too large for the corpus of size: '{1}'")]
+    #[error("The rank '{0}' is too large for the corpus of size '{1}'")]
     Rank(usize, usize),
     #[error("The position '{1}' stated for character '0' is beyond the length of the desired word '{2}'")]
     CharLocation(char, usize, usize),
 }
 
-fn main() {
-    if let Err(err) = entry() {
-        {
-            eprintln!("{}", err)
+fn main() -> ExitCode {
+    match entry() {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            ExitCode::FAILURE
         }
-        std::process::exit(1)
     }
 }
 
@@ -157,15 +158,30 @@ fn entry() -> Result<(), Error> {
                 .get_one::<String>("ngram")
                 .expect("ngram is required");
 
-            print_corpus(
-                corpus.anagrams(ngram),
-                command,
-                Display {
-                    string: true,
-                    ..Default::default()
-                },
-            )
-            .map_err(|_| Error::NoAnagrams(ngram.clone()))
+            let pattern = command.get_one::<String>("pattern");
+
+            let corpus = corpus.anagrams(ngram);
+
+            match pattern {
+                Some(pattern) if !corpus.is_empty() => print_corpus(
+                    corpus.wildcard(Regex::new(pattern)?),
+                    command,
+                    Display {
+                        string: true,
+                        ..Default::default()
+                    },
+                )
+                .map_err(|_| Error::NoMatches(pattern.to_owned())),
+                _ => print_corpus(
+                    corpus,
+                    command,
+                    Display {
+                        string: true,
+                        ..Default::default()
+                    },
+                )
+                .map_err(|_| Error::NoAnagrams(ngram.clone())),
+            }
         }),
         Some(("fuzzy", command)) => run_with_corpus(&cli, |corpus| {
             let ngram = command
@@ -536,6 +552,12 @@ fn cli() -> clap::Command {
                 .action(ArgAction::Set)
                 .value_parser(value_parser!(String))
                 .help("The ngram to find anagrams of in the corpus"))
+            .arg(Arg::new("pattern")
+                .long("where")
+                .value_name("PATTERN")
+                .action(ArgAction::Set)
+                .value_parser(value_parser!(String))
+                .help("The regex pattern to match against ngrams in the corpus"))
             .arg(rank_rank.clone())
             .arg(rank_freq.clone())
             .arg(rank_count.clone())
@@ -578,12 +600,12 @@ fn cli() -> clap::Command {
                 .action(ArgAction::Set)
                 .value_parser(value_parser!(String))
                 .help("The regex pattern to match against ngrams in the corpus"))
-                .arg(rank_rank.clone())
-                .arg(rank_freq.clone())
-                .arg(rank_count.clone())
-                .arg(results_size.clone())
-                .about("Finds ngrams that match the regex pattern")
-                .long_about(indoc! {"
+            .arg(rank_rank.clone())
+            .arg(rank_freq.clone())
+            .arg(rank_count.clone())
+            .arg(results_size.clone())
+            .about("Finds ngrams that match the regex pattern")
+            .long_about(indoc! {"
                 Finds ngrams in the corpus that match the regex pattern.
                 The ngrams are returned in order of their rank."}))
         .subcommand(Command::new("wordle")
