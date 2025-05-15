@@ -68,9 +68,6 @@ fn book_or_make(cli: &ArgMatches) -> Result<Book, std::io::Error> {
             dataset::extract_raw(File::open(filename)?),
             *cli.get_one::<u64>("corpus_threshold").expect("required"),
         ))
-    // TODO: Merge corpus_file & corpus argument flags.
-    } else if let Some(filename) = cli.get_one::<PathBuf>("corpus_file") {
-        Ok(grumpr::dataset::ngrams(File::open(filename)?))
     } else {
         dataset::file::raw(cli.get_one::<PathBuf>("corpus").expect("required"))
     }
@@ -224,17 +221,19 @@ fn entry() -> Result<(), Error> {
                 let chars = corpus
                     .grams
                     .iter()
-                    .map(|g| g.string.len() as u64)
+                    .map(|g| g.string.chars().count() as u64)
                     .sum::<u64>();
-                let ws_total = chars * grams_total / grams_unique + grams_total - 1;
+                let chars_total = chars * grams_total / grams_unique;
+                let ws_total = chars_total + grams_total - 1;
                 format!(
-                    "Grams: Unique({}) Total({})\nChars: Unique({}) Total({}) TotalWS({}) PerGram({:.5})\nMisc : Pages({:.2})",
+                    "Grams: Unique({}) Total({})\nChars: Unique({}) Total({}) TotalWS({})\nPerGram: Unique({:.5}) Total({:.5})\nMisc : Pages({:.2})",
                     grams_unique,
                     grams_total,
                     chars,
-                    chars * grams_total / grams_unique,
+                    chars_total,
                     ws_total,
                     chars as f64 / grams_unique as f64,
+                    chars_total as f64 / grams_total as f64,
                     ws_total as f64 / 3000.0
                 )
             });
@@ -288,6 +287,13 @@ fn entry() -> Result<(), Error> {
                 .map(|pairs| turn_char_pos_into_pos_map(length, pairs))
                 .unwrap_or_else(|| Ok(vec![String::new(); length]))?;
 
+            let all_has = pattern_has
+                .iter()
+                .flat_map(|s| s.chars())
+                .sorted_unstable()
+                .dedup()
+                .collect_vec();
+
             let pattern = (0..length)
                 .map(|i| {
                     if !pattern_is[i].is_empty() {
@@ -301,8 +307,21 @@ fn entry() -> Result<(), Error> {
                 .join("");
             let pattern = format!("^{pattern}$");
 
+            let corpus = corpus.wildcard(Regex::new(&pattern)?);
+            let corpus = corpus
+                .iter()
+                .filter(|&gram| {
+                    for &c in &all_has {
+                        if !gram.string.contains(c) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .collect();
+
             print_corpus(
-                corpus.wildcard(Regex::new(&pattern)?),
+                corpus,
                 command,
                 Display {
                     string: true,
@@ -437,6 +456,14 @@ fn cli() -> clap::Command {
         .value_parser(value_parser!(u64))
         .help("Number of occurrences an ngram requires before it is put in the corpus");
 
+    let output_file = Arg::new("output_file")
+        .short('o')
+        .long("output")
+        .action(ArgAction::Set)
+        .value_name("FILE")
+        .value_parser(value_parser!(PathBuf))
+        .help("File to output the corpus data to. Defaults to stdout");
+
     command!()
         .author(crate_authors!())
         .about(crate_description!())
@@ -462,14 +489,6 @@ fn cli() -> clap::Command {
             .action(ArgAction::Set)
             .value_parser(PossiblePathValueParser(grumpr::dataset::find::available_files("filter"), "filter"))
             .help("TODO: ADD HELP"))
-        .arg(Arg::new("corpus_file")
-            .short('i')
-            .long("corpus-file")
-            .value_name("FILE")
-            .visible_alias("fcorpus")
-            .action(ArgAction::Set)
-            .value_parser(value_parser!(PathBuf))
-            .help("Use a custom corpus"))
         .arg(Arg::new("book_file")
             .short('b')
             .long("book")
@@ -615,13 +634,7 @@ fn cli() -> clap::Command {
                 .default_missing_value("only"))
             .about("Display information about the corpus itself"))
         .subcommand(Command::new("corpus")
-            .arg(Arg::new("output_file")
-                .short('o')
-                .long("output")
-                .action(ArgAction::Set)
-                .value_name("FILE")
-                .value_parser(value_parser!(PathBuf))
-                .help("File to output the corpus data to. Defaults to stdout"))
+            .arg(output_file)
             .arg(corpus_threshold)
             .arg(Arg::new("input_file")
                 .required(true)
