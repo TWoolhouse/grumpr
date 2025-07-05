@@ -1,87 +1,52 @@
-use super::{Key, Leaf, Leaflet, Trie};
-use smallvec::{smallvec, SmallVec};
-use std::{any::type_name_of_val, iter::Flatten};
+use super::{Key, Trie};
 
-pub(super) type Children<'a, K, V> = Flatten<core::slice::Iter<'a, Option<Box<Trie<K, V>>>>>;
-
-pub struct Leaflets<'a, K: Key, V> {
-    stack: SmallVec<[Children<'a, K, V>; 4]>,
+#[derive(Debug, Clone)]
+pub struct Bytes<'a, K: Key, V> {
+    base: &'a Trie<K, V>,
+    bottom: u8,
+    top: u8,
 }
+const _: () = assert!(
+    super::CHILDREN <= (u8::MAX as usize + 1),
+    "Trie children must fit within a u8"
+);
 
-impl<'a, K: Key + std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for Leaflets<'a, K, V>
-where
-    K::Notch: std::fmt::Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct(type_name_of_val(self))
-            .field("stack", &self.stack)
-            .finish()
-    }
-}
-
-impl<'a, K: Key, V> Leaflets<'a, K, V> {
-    pub fn new(root: &'a Trie<K, V>) -> Self {
+impl<'a, K: Key, V> Bytes<'a, K, V> {
+    pub fn new(trie: &'a Trie<K, V>) -> Self {
         Self {
-            stack: smallvec![root.children()],
+            base: trie,
+            bottom: 0u8.wrapping_sub(1),
+            top: trie.children.len() as u8,
         }
     }
 }
 
-impl<'a, K: Key, V> Iterator for Leaflets<'a, K, V> {
-    type Item = Leaflet<'a, K, V>;
+impl<'a, K: Key, V> Iterator for Bytes<'a, K, V> {
+    type Item = (u8, &'a Trie<K, V>);
+
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(children) = self.stack.last_mut() {
-            if let Some(child) = children.next() {
-                let leaflet = child.try_as_leaflet();
-                if leaflet.is_some() {
-                    return leaflet;
+        'start: loop {
+            while self.top < self.base.children.len() as u8 {
+                if let Some(ref child) = self.base.children[self.bottom as usize]
+                    .as_ref()
+                    .unwrap()
+                    .children[self.top as usize]
+                {
+                    self.top += 1;
+                    return Some(((self.bottom << 4) + (self.top - 1), child));
+                } else {
+                    self.top += 1;
+                    continue;
                 }
-                self.stack.push(child.children());
-            } else {
-                self.stack.pop();
             }
-        }
-        None
-    }
-}
-
-pub struct Leaves<'a, K: Key, V> {
-    stack: SmallVec<[Children<'a, K, V>; 4]>,
-}
-
-impl<'a, K: Key + std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for Leaves<'a, K, V>
-where
-    K::Notch: std::fmt::Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct(type_name_of_val(self))
-            .field("stack", &self.stack)
-            .finish()
-    }
-}
-
-impl<'a, K: Key, V> Leaves<'a, K, V> {
-    pub fn new(root: &'a Trie<K, V>) -> Self {
-        Self {
-            stack: smallvec![root.children()],
-        }
-    }
-}
-
-impl<'a, K: Key, V> Iterator for Leaves<'a, K, V> {
-    type Item = Leaf<'a, K, V>;
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(children) = self.stack.last_mut() {
-            if let Some(child) = children.next() {
-                let leaf = child.try_as_leaf();
-                if leaf.is_some() {
-                    return leaf;
+            while self.bottom != (self.base.children.len() - 1) as u8 {
+                self.bottom = self.bottom.wrapping_add(1);
+                if self.base.children[self.bottom as usize].is_some() {
+                    self.top = 0;
+                    continue 'start;
                 }
-                self.stack.push(child.children());
-            } else {
-                self.stack.pop();
             }
+            return None;
         }
-        None
     }
 }

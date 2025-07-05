@@ -42,7 +42,7 @@ fn multiple_overlapping() {
 }
 
 #[test]
-fn iter_all() {
+fn iter_bytes() {
     let mut trie = Trie::new();
     let keys = vec!["abc", "def", "ghi"];
     let values = vec![1, 2, 3];
@@ -51,12 +51,12 @@ fn iter_all() {
         trie.insert(key.to_owned(), *value);
     }
 
-    assert_eq!(
-        &trie
-            .leaves()
-            .map(|leaflet| *leaflet.value())
-            .sorted()
-            .collect::<Vec<_>>(),
-        &[1, 2, 3]
-    );
+    let found_bytes = trie.bytes().map(|(byte, _)| byte).sorted().collect_vec();
+    let expected_bytes: Vec<u8> = keys
+        .iter()
+        .map(|key| key.as_bytes()[0])
+        .sorted()
+        .collect_vec();
+
+    assert_eq!(found_bytes, expected_bytes);
 }

@@ -5,7 +5,7 @@ use crate::{
         search::{MultiHeadDFA, Node},
         Librarian, Root, Subset,
     },
-    trie::{iter::Leaflets, Key, Leaflet, Notch, Trie},
+    trie::{iter::Bytes, Key, Trie},
 };
 
 #[derive(Debug)]
@@ -43,7 +43,7 @@ impl Librarian for Library {
     }
 
     fn mask(&self, query: &impl Automaton) -> Self::Mask<'_> {
-        let search = MultiHeadDFA::new(query, Leaflet { trie: &self.trie }).unwrap();
+        let search = MultiHeadDFA::new(query, &self.trie).unwrap();
         let leaves = search.into_iter().map(|leaflet| leaflet.value.unwrap());
 
         Subset {
@@ -57,15 +57,13 @@ impl Librarian for Library {
     }
 }
 
-impl<'a, K: Key + 'a, V: 'a> Node for Leaflet<'a, K, V> {
-    type Children = Leaflets<'a, K, V>;
-    fn as_bytes(&self) -> impl IntoIterator<Item = u8> + '_ {
-        self.notch.as_bytes()
-    }
+impl<'a, K: Key + 'a, V: 'a> Node for &'a Trie<K, V> {
+    type Children = Bytes<'a, K, V>;
+
     fn children(&self) -> Self::Children {
-        self.trie.leaflets()
+        self.bytes()
     }
     fn is_leaf(&self) -> bool {
-        self.trie.try_as_leaf().is_some()
+        self.value.is_some()
     }
 }

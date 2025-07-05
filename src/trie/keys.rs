@@ -1,6 +1,6 @@
-use super::{Key, Notch};
+use super::Key;
 
-pub(super) trait NotchNibbles: Notch {
+pub(super) trait KeyNibbles: Key {
     fn as_nibbles(&self) -> impl IntoIterator<Item = u8> {
         const _: () = assert!(
             (1 << (size_of::<u8>() * 8 - 4)) <= super::CHILDREN,
@@ -12,28 +12,16 @@ pub(super) trait NotchNibbles: Notch {
     }
 }
 
-impl<S> NotchNibbles for S where S: Notch {}
+impl<S> KeyNibbles for S where S: Key + ?Sized {}
 
 impl Key for String {
-    type Notch = char;
-
-    fn notches(&self) -> impl IntoIterator<Item = Self::Notch> {
-        self.chars()
-    }
-}
-
-impl Notch for char {
     fn as_bytes(&self) -> impl IntoIterator<Item = u8> + '_ {
-        let mut buffer = [0; 4];
-        let len = self.encode_utf8(&mut buffer).len();
-        buffer.into_iter().take(len)
+        self.bytes()
     }
 }
 
 impl Key for str {
-    type Notch = char;
-
-    fn notches(&self) -> impl IntoIterator<Item = Self::Notch> {
-        self.chars()
+    fn as_bytes(&self) -> impl IntoIterator<Item = u8> + '_ {
+        self.bytes()
     }
 }

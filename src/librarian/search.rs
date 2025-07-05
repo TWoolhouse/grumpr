@@ -5,22 +5,11 @@ use regex_automata::{
 use smallvec::{smallvec, SmallVec};
 use std::{any::type_name_of_val, fmt::Debug};
 
-pub trait Node {
-    type Children: Iterator<Item = Self>;
-    fn as_bytes(&self) -> impl IntoIterator<Item = u8> + '_;
+pub trait Node: Clone {
+    type Children: Iterator<Item = (u8, Self)>;
     fn children(&self) -> Self::Children;
     fn is_leaf(&self) -> bool;
 }
-
-trait NodePriv: Node {
-    fn drive_dfa<'d, DFA: Automaton>(&self, dfa: &'d DFA, mut state: StateID) -> StateID {
-        for byte in self.as_bytes() {
-            state = dfa.next_state(state, byte);
-        }
-        state
-    }
-}
-impl<T> NodePriv for T where T: Node {}
 
 #[derive(Debug)]
 enum HeadPos<N: Node> {
@@ -97,27 +86,24 @@ where
         while let Some(head) = self.heads.last_mut() {
             if let Some(state) = head.state {
                 match head.pos {
-                    HeadPos::This(ref mut node) => {
-                        let is_leaf = node.is_leaf();
-                        let children = HeadPos::Children(node.children());
-                        let this = core::mem::replace(&mut head.pos, children);
-                        if is_leaf && self.dfa.is_match_state(self.dfa.next_eoi_state(state)) {
-                            return Some(match this {
-                                HeadPos::This(node) => node,
-                                _ => unreachable!("HeadPos::This should always be the case here"),
-                            });
+                    HeadPos::This(ref node) => {
+                        let node = node.clone();
+                        head.pos = HeadPos::Children(node.children());
+                        if node.is_leaf() && self.dfa.is_match_state(self.dfa.next_eoi_state(state))
+                        {
+                            return Some(node);
                         }
                     }
                     HeadPos::Children(ref mut children) => {
-                        if let Some(child) = children.next() {
-                            let state_next = child.drive_dfa(self.dfa, state);
-                            if self.dfa.is_dead_state(state_next) {
+                        if let Some((byte, child)) = children.next() {
+                            let state = self.dfa.next_state(state, byte);
+                            if self.dfa.is_dead_state(state) {
                                 continue;
                             }
-                            if self.dfa.is_match_state(state_next) {
+                            if self.dfa.is_match_state(state) {
                                 self.heads.push(Head::accepting(child));
                             } else {
-                                self.heads.push(Head::new(child, state_next));
+                                self.heads.push(Head::new(child, state));
                             }
                         } else {
                             // No more children, pop the head.
@@ -127,19 +113,15 @@ where
                 }
             } else {
                 match head.pos {
-                    HeadPos::This(ref mut node) => {
-                        let is_leaf = node.is_leaf();
-                        let children = HeadPos::Children(node.children());
-                        let this = core::mem::replace(&mut head.pos, children);
-                        if is_leaf {
-                            return Some(match this {
-                                HeadPos::This(node) => node,
-                                _ => unreachable!("HeadPos::This should always be the case here"),
-                            });
+                    HeadPos::This(ref node) => {
+                        let node = node.clone();
+                        head.pos = HeadPos::Children(node.children());
+                        if node.is_leaf() {
+                            return Some(node.clone());
                         }
                     }
                     HeadPos::Children(ref mut children) => {
-                        if let Some(child) = children.next() {
+                        if let Some((_, child)) = children.next() {
                             self.heads.push(Head::accepting(child));
                         } else {
                             self.heads.pop();
