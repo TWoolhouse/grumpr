@@ -1,69 +1,18 @@
-use regex_automata::dfa::Automaton;
-
-use crate::{
-    librarian::{
-        search::{MultiHeadDFA, Node},
-        Librarian, Root, Subset,
-    },
-    trie::{iter::Bytes, Key, Trie},
-};
+use crate::librarian::Seed;
 
 #[derive(Debug)]
 pub struct Library {
-    pub(super) trie: Trie<String, usize>,
-    // pub(super) roots: Vec<Root>,
-    pub roots: Vec<Root>,
+    pub(super) seeds: Vec<Seed>,
 }
 
 impl FromIterator<(String, u64)> for Library {
     fn from_iter<T: IntoIterator<Item = (String, u64)>>(iter: T) -> Self {
-        let mut trie = Trie::new();
-        let mut roots = Vec::new();
-        let mut index = 0;
+        let mut seeds = Vec::new();
 
-        for (root, count) in iter {
-            trie.insert(root.clone(), index);
-            roots.push(Root { root, index, count });
-            index += 1;
+        for (index, (root, count)) in iter.into_iter().enumerate() {
+            seeds.push(Seed { root, index, count });
         }
 
-        Library { trie, roots }
-    }
-}
-
-impl Librarian for Library {
-    type Mask<'a> = Subset<'a>;
-
-    fn root(&self, root: &str) -> Option<&Root> {
-        self.trie.get(root).map(|&index| &self.roots[index])
-    }
-
-    fn index(&self, index: usize) -> Option<&Root> {
-        self.roots.get(index)
-    }
-
-    fn mask(&self, query: &impl Automaton) -> Self::Mask<'_> {
-        let search = MultiHeadDFA::new(query, &self.trie).unwrap();
-        let leaves = search.into_iter().map(|leaflet| leaflet.value.unwrap());
-
-        Subset {
-            parent: self,
-            indices: leaves.collect(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.roots.len()
-    }
-}
-
-impl<'a, K: Key + 'a, V: 'a> Node for &'a Trie<K, V> {
-    type Children = Bytes<'a, K, V>;
-
-    fn children(&self) -> Self::Children {
-        self.bytes()
-    }
-    fn is_leaf(&self) -> bool {
-        self.value.is_some()
+        Library { seeds }
     }
 }

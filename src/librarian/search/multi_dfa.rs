@@ -1,15 +1,10 @@
+use super::Node;
 use regex_automata::{
     dfa::Automaton,
     util::{primitives::StateID, start::Config},
 };
 use smallvec::{smallvec, SmallVec};
 use std::{any::type_name_of_val, fmt::Debug};
-
-pub trait Node: Clone {
-    type Children: Iterator<Item = (u8, Self)>;
-    fn children(&self) -> Self::Children;
-    fn is_leaf(&self) -> bool;
-}
 
 #[derive(Debug)]
 enum HeadPos<N: Node> {
@@ -49,7 +44,7 @@ impl<N: Node> Head<N> {
     }
 }
 
-pub(super) struct MultiHeadDFA<'d, DFA: Automaton, N: Node> {
+pub struct MultiHeadDFA<'d, DFA: Automaton, N: Node> {
     dfa: &'d DFA,
     heads: SmallVec<[Head<N>; 32]>,
 }
