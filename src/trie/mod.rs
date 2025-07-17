@@ -11,7 +11,7 @@ pub trait Key {
 const CHILDREN: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Trie<K: Key, V> {
+pub struct Trie<K: Key + ?Sized, V> {
     pub value: Option<V>,
     // TODO: Option the whole array?
     children: [Option<Box<Trie<K, V>>>; CHILDREN],

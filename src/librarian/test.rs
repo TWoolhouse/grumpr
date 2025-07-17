@@ -40,8 +40,6 @@ fn librarian_iter() {
     let library = library_from_dataset(dataset.iter().copied());
     let librarian = Librarian::from(&library);
 
-    librarian.iter();
-
     for (i, gram) in librarian.iter().enumerate() {
         assert!(gram.word().is_some());
         assert_eq!(gram.word().unwrap(), &library.seeds[i]);
@@ -61,7 +59,7 @@ fn search_lvl0() {
 
     // Search for a word
     let query = QuerySearch::new("librarian");
-    let results = librarian.search(query);
+    let results = librarian.search(&query);
     assert_eq!(results.len(), 1);
     assert_eq!(
         results.iter().next().unwrap().word().unwrap(),
@@ -70,7 +68,7 @@ fn search_lvl0() {
 
     // Search for a sequence
     let query = QuerySearch::new("helloworld").repeating(1);
-    let results = librarian.search(query);
+    let results = librarian.search(&query);
     assert_eq!(results.len(), 1);
     assert_eq!(results.iter().next().unwrap().sequence().unwrap().len(), 2);
 }
@@ -81,18 +79,18 @@ fn search_lvl1() {
     let library = library_from_dataset(dataset.iter().copied());
     let librarian = Librarian::from(&library);
 
-    let librarian = librarian.search(QuerySearch::new(".").repeating(1));
+    let librarian = librarian.search(&QuerySearch::new(".").repeating(1));
     assert_eq!(librarian.len(), dataset.len() + dataset.len().pow(2));
 
     // Search for a word
     let query = QuerySearch::new("librarianworld");
-    let results = librarian.search(query);
+    let results = librarian.search(&query);
     assert_eq!(results.len(), 1);
     assert_eq!(results.iter().next().unwrap().sequence().unwrap().len(), 2);
 
     // Search for a sequence
     let query = QuerySearch::new("helloworld").repeating(1);
-    let results = librarian.search(query);
+    let results = librarian.search(&query);
     assert!(results.len() > 1);
     assert!(results.iter().next().unwrap().sequence().unwrap().len() >= 2);
 }

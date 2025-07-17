@@ -3,7 +3,7 @@ use regex_automata::{
     dfa::Automaton,
     util::{primitives::StateID, start::Config},
 };
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use std::{any::type_name_of_val, fmt::Debug};
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub struct MultiHeadDFA<'d, DFA: Automaton, N: Node> {
     heads: SmallVec<[Head<N>; 32]>,
 }
 
-impl<'d, DFA: Automaton, N: Node + Debug> Debug for MultiHeadDFA<'d, DFA, N>
+impl<DFA: Automaton, N: Node + Debug> Debug for MultiHeadDFA<'_, DFA, N>
 where
     N::Children: Debug,
 {
@@ -70,7 +70,7 @@ impl<'d, DFA: Automaton, N: Node> MultiHeadDFA<'d, DFA, N> {
     }
 }
 
-impl<'d, DFA: Automaton, N: Node> Iterator for MultiHeadDFA<'d, DFA, N>
+impl<DFA: Automaton, N: Node> Iterator for MultiHeadDFA<'_, DFA, N>
 where
     Self: Debug,
     N: Debug,

@@ -18,12 +18,14 @@ pub(super) enum LibGram<'l> {
 }
 
 impl<'l> Gram<'l> {
+    #[must_use]
     pub fn word(&self) -> Option<&'l Seed> {
         match self {
             Gram::Word(seed) => Some(seed),
             Gram::Sequence(_) => None,
         }
     }
+    #[must_use]
     pub fn sequence(self) -> Option<Vec<&'l Seed>> {
         match self {
             Gram::Word(_) => None,
@@ -31,6 +33,7 @@ impl<'l> Gram<'l> {
         }
     }
 
+    #[must_use]
     fn degrade(self) -> Self {
         use Gram::*;
         match self {
@@ -41,6 +44,7 @@ impl<'l> Gram<'l> {
 }
 
 impl<'l> LibGram<'l> {
+    #[must_use]
     pub fn into_gram(self, library: &'l Library) -> Gram<'l> {
         match self {
             LibGram::Word(index, _) => Gram::Word(&library.seeds[index]),
@@ -60,6 +64,7 @@ impl<'l> LibGram<'l> {
     }
 
     /// Ensure that a sequence with a single word is represented as a `Word`.
+    #[must_use]
     fn degrade(self) -> Self {
         use LibGram::*;
         match self {
@@ -133,7 +138,7 @@ impl<'l> FromIterator<&'l Seed> for LibGram<'l> {
     }
 }
 
-impl<'l> FromIterator<usize> for LibGram<'l> {
+impl FromIterator<usize> for LibGram<'_> {
     fn from_iter<T: IntoIterator<Item = usize>>(iter: T) -> Self {
         Self::Sequence(iter.into_iter().collect(), PhantomData).degrade()
     }

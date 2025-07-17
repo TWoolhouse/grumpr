@@ -1,4 +1,4 @@
-use super::{iter::Bytes, keys::KeyNibbles, Key, Trie};
+use super::{Key, Trie, iter::Bytes, keys::KeyNibbles};
 use std::borrow::Borrow;
 
 impl<K: Key, V> Default for Trie<K, V> {
@@ -12,11 +12,16 @@ impl<K: Key, V> Default for Trie<K, V> {
 }
 
 impl<K: Key, V> Trie<K, V> {
+    #[must_use]
     pub fn new() -> Self {
         Trie::default()
     }
 
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+    pub fn insert<Q>(&mut self, key: &Q, value: V) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Key + ?Sized,
+    {
         let mut current_node = self;
         let mut nibbles = key.as_nibbles().into_iter();
         while let Some(index) = nibbles.next() {
@@ -32,6 +37,7 @@ impl<K: Key, V> Trie<K, V> {
         current_node.value.replace(value)
     }
 
+    #[must_use]
     fn insert_fast(nibbles: impl Iterator<Item = u8>, value: V) -> Self {
         let mut top = Trie::new();
         let mut trie = &mut top;
@@ -43,6 +49,7 @@ impl<K: Key, V> Trie<K, V> {
         top
     }
 
+    #[must_use]
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,

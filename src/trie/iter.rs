@@ -36,7 +36,6 @@ impl<'a, K: Key, V> Iterator for Bytes<'a, K, V> {
                     return Some(((self.bottom << 4) + (self.top - 1), child));
                 } else {
                     self.top += 1;
-                    continue;
                 }
             }
             while self.bottom != (self.base.children.len() - 1) as u8 {
@@ -55,7 +54,7 @@ impl<K: Key, V> FromIterator<(K, V)> for Trie<K, V> {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         let mut trie = Trie::new();
         for (key, value) in iter {
-            trie.insert(key, value);
+            trie.insert(&key, value);
         }
         trie
     }
