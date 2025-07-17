@@ -1,7 +1,7 @@
 [package]
 name = "grumpr"
 version = "0.3.0"
-edition = "2021"
+edition = "2024"
 authors = ["Thomas Woolhouse <thomasrwoolhouse@gmail.com>"]
 description = "A tool for searching and finding words."
 license = "MIT"
