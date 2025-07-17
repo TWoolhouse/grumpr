@@ -1,16 +1,20 @@
 mod library;
 use itertools::Itertools;
 pub use library::Library;
+mod error;
+pub use error::{Error, Result};
 mod grams;
 mod search;
+pub use search::query::{QueryAnagram, QuerySearch};
 #[cfg(test)]
 mod test;
 pub use grams::Gram;
 use grams::LibGram;
 use regex::Regex;
+use regex_automata::dfa::Automaton;
 
 use crate::{
-    librarian::search::{MultiHeadDFA, Nest, query::QuerySearch},
+    librarian::search::{MultiHeadDFA, Nest},
     trie::Trie,
 };
 
@@ -60,57 +64,43 @@ impl<'l> Librarian<'l> {
     }
 
     /// Find seeds matching a regex pattern.
-    #[must_use]
-    pub fn search(&self, query: &QuerySearch<'_>) -> Self {
+    pub fn search(&self, query: &QuerySearch<'_>) -> Result<Self> {
         let grams = if query.repeats > 0 {
-            self.search_trie(query)
+            self.search_deep(query)?
         } else {
-            self.search_flat(query)
+            self.search_flat(query)?
         };
 
-        Self {
+        Ok(Self {
             library: self.library,
             grams,
-        }
+        })
     }
-    /// Find annagrams // TODO: Multiple words i.e. ngrams
-    // fn anagrams(&self);
     /// Nearest word search
     // fn nearest(&self, pattern: &str) -> Option<&Seed>; // impl Librarian + '_;
+    pub fn nearest(&self) {}
 
-    #[must_use]
-    fn search_trie(&self, query: &QuerySearch<'_>) -> Vec<LibGram<'l>> {
-        let trie = Trie::from(self);
+    /// Find annagrams
+    pub fn anagrams(&self, query: &QueryAnagram<'_>) -> Result<Self> {
+        let grams = if query.repeats > 0 {
+            if query.wildcards > 0 || query.len() >= 8 {
+                let partial = self.anagrams_deep(query)?;
+                Self::anagrams_flat(self.library, &partial, &QueryAnagram::new(query.pattern))
+                    .cloned()
+                    .collect()
+            } else {
+                self.anagrams_fast(query)?
+            }
+        } else {
+            Self::anagrams_flat(self.library, &self.grams, query)
+                .cloned()
+                .collect()
+        };
 
-        let dfa = regex_automata::dfa::dense::Builder::new()
-            .build(query.pattern)
-            .expect("Failed to build DFA");
-
-        let search = MultiHeadDFA::new(&dfa, Nest::new(&trie, query.repeats))
-            .expect("Failed to create MultiHeadDFA");
-
-        search
-            .map(|node| node.chain().map(|t| t.value.unwrap()).collect())
-            .collect()
-    }
-
-    #[must_use]
-    fn search_flat(&self, query: &QuerySearch<'_>) -> Vec<LibGram<'l>> {
-        let re = Regex::new(query.pattern).unwrap();
-        self.grams
-            .iter()
-            .filter_map(move |lgram| {
-                let word: String;
-                let text = match lgram.as_gram(self.library) {
-                    Gram::Word(word, ..) => word.root.as_str(),
-                    Gram::Sequence(words, ..) => {
-                        word = words.iter().map(|s| &s.root).join("");
-                        word.as_str()
-                    }
-                };
-                re.is_match(text).then(|| lgram.clone())
-            })
-            .collect()
+        Ok(Self {
+            library: self.library,
+            grams,
+        })
     }
 }
 
@@ -118,24 +108,6 @@ impl<'l> From<&'l Library> for Librarian<'l> {
     fn from(library: &'l Library) -> Self {
         let grams = library.seeds.iter().map(LibGram::from).collect();
         Self { library, grams }
-    }
-}
-
-impl<'a, 'l> From<&'a Librarian<'l>> for Trie<String, &'a LibGram<'l>> {
-    fn from(librarian: &'a Librarian<'l>) -> Self {
-        let mut trie = Trie::new();
-        for lgram in librarian.grams.iter() {
-            match lgram.as_gram(&librarian.library) {
-                Gram::Word(seed) => {
-                    trie.insert(&seed.root, lgram);
-                }
-                Gram::Sequence(seeds) => {
-                    let key = seeds.into_iter().map(|seed| &seed.root).join("");
-                    trie.insert(&key, lgram);
-                }
-            }
-        }
-        trie
     }
 }
 
@@ -185,5 +157,122 @@ impl<'l> IntoIterator for Librarian<'l> {
             library: self.library,
             grams: self.grams.into_iter(),
         }
+    }
+}
+
+impl<'l> Librarian<'l> {
+    fn search_deep(&self, query: &QuerySearch<'_>) -> Result<Vec<LibGram<'l>>> {
+        let trie = Trie::from(self);
+        let dfa = regex_automata::dfa::dense::Builder::new().build(query.pattern)?;
+        self.search_trie(&trie, &dfa, query.repeats)
+    }
+
+    fn search_trie(
+        &self,
+        trie: &Trie<String, &LibGram<'l>>,
+        dfa: &impl Automaton,
+        depth: usize,
+    ) -> Result<Vec<LibGram<'l>>> {
+        let search = MultiHeadDFA::new(dfa, Nest::new(trie, depth))?;
+
+        Ok(search
+            .map(|node| {
+                node.chain()
+                    .into_iter()
+                    .map(|t| t.value.expect("Returned Nodes are leaves"))
+                    .collect()
+            })
+            .collect())
+    }
+
+    fn search_flat(&self, query: &QuerySearch<'_>) -> Result<Vec<LibGram<'l>>> {
+        debug_assert_eq!(query.repeats, 0, "Flat search does not support repeats");
+        let re = Regex::new(query.pattern)?;
+        Ok(self
+            .grams
+            .iter()
+            .filter_map(move |lgram| {
+                let word: String;
+                let text = match lgram {
+                    LibGram::Word(i, ..) => self.library.seeds[*i].root.as_str(),
+                    LibGram::Sequence(indices, ..) => {
+                        word = indices
+                            .iter()
+                            .map(|&i| &self.library.seeds[i].root)
+                            .join("");
+                        word.as_str()
+                    }
+                };
+                re.is_match(text).then(|| lgram.clone())
+            })
+            .collect())
+    }
+
+    fn anagrams_deep(&self, query: &QueryAnagram<'_>) -> Result<Vec<LibGram<'l>>> {
+        let trie = Trie::from(self);
+        let dfa = search::permutation::dfa_partial(query.pattern, query.wildcards)?;
+        let partial = self.search_trie(&trie, &dfa, query.repeats)?;
+
+        Ok(partial)
+    }
+
+    fn anagrams_fast(&self, query: &QueryAnagram<'_>) -> Result<Vec<LibGram<'l>>> {
+        debug_assert!(
+            query.len() < 8,
+            "Anagram search is not optimized for long patterns"
+        );
+        debug_assert_eq!(query.wildcards, 0, "idk how to handle this yet");
+
+        let trie = Trie::from(self);
+        let dfa = search::permutation::dfa_exact(query.pattern)?;
+        self.search_trie(&trie, &dfa, query.repeats)
+    }
+
+    fn anagrams_flat<'a>(
+        library: &'l Library,
+        grams: impl IntoIterator<Item = &'a LibGram<'l>>,
+        query: &QueryAnagram<'_>,
+    ) -> impl Iterator<Item = &'a LibGram<'l>>
+    where
+        'l: 'a,
+    {
+        debug_assert_eq!(
+            query.wildcards, 0,
+            "Flat anagram search does not support wildcards"
+        );
+        debug_assert_eq!(
+            query.repeats, 0,
+            "Flat anagram search does not support repeats"
+        );
+        let pattern: String = query.pattern.chars().sorted().collect();
+        grams.into_iter().filter(move |lgram| match lgram {
+            LibGram::Word(idx, ..) => library.seeds[*idx]
+                .root
+                .chars()
+                .sorted()
+                .eq(pattern.chars()),
+            LibGram::Sequence(indices, ..) => {
+                let key = indices.iter().flat_map(|&i| library.seeds[i].root.bytes());
+                key.sorted().eq(pattern.bytes())
+            }
+        })
+    }
+}
+
+impl<'a, 'l> From<&'a Librarian<'l>> for Trie<String, &'a LibGram<'l>> {
+    fn from(librarian: &'a Librarian<'l>) -> Self {
+        let mut trie = Trie::new();
+        for lgram in librarian.grams.iter() {
+            match lgram.as_gram(librarian.library) {
+                Gram::Word(seed) => {
+                    trie.insert(&seed.root, lgram);
+                }
+                Gram::Sequence(seeds) => {
+                    let key = seeds.into_iter().map(|seed| &seed.root).join("");
+                    trie.insert(&key, lgram);
+                }
+            }
+        }
+        trie
     }
 }

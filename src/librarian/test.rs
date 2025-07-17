@@ -59,7 +59,7 @@ fn search_lvl0() {
 
     // Search for a word
     let query = QuerySearch::new("librarian");
-    let results = librarian.search(&query);
+    let results = librarian.search(&query).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(
         results.iter().next().unwrap().word().unwrap(),
@@ -68,7 +68,7 @@ fn search_lvl0() {
 
     // Search for a sequence
     let query = QuerySearch::new("helloworld").repeating(1);
-    let results = librarian.search(&query);
+    let results = librarian.search(&query).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results.iter().next().unwrap().sequence().unwrap().len(), 2);
 }
@@ -79,18 +79,36 @@ fn search_lvl1() {
     let library = library_from_dataset(dataset.iter().copied());
     let librarian = Librarian::from(&library);
 
-    let librarian = librarian.search(&QuerySearch::new(".").repeating(1));
+    let librarian = librarian
+        .search(&QuerySearch::new(".").repeating(1))
+        .unwrap();
     assert_eq!(librarian.len(), dataset.len() + dataset.len().pow(2));
 
     // Search for a word
     let query = QuerySearch::new("librarianworld");
-    let results = librarian.search(&query);
+    let results = librarian.search(&query).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results.iter().next().unwrap().sequence().unwrap().len(), 2);
 
     // Search for a sequence
     let query = QuerySearch::new("helloworld").repeating(1);
-    let results = librarian.search(&query);
+    let results = librarian.search(&query).unwrap();
     assert!(results.len() > 1);
     assert!(results.iter().next().unwrap().sequence().unwrap().len() >= 2);
+}
+
+#[test]
+fn anagrams() {
+    let dataset = dataset();
+    let library = library_from_dataset(dataset.iter().copied());
+    let librarian = Librarian::from(&library);
+
+    // Search for anagrams
+    let query = QueryAnagram::new("stur");
+    let results = librarian.anagrams(&query).unwrap();
+    assert_eq!(results.len(), 1);
+    for gram in results {
+        assert!(gram.word().is_some());
+        assert_eq!(gram.word().unwrap().root, "rust");
+    }
 }

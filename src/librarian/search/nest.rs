@@ -2,15 +2,28 @@ use std::rc::Rc;
 
 use crate::librarian::search::Node;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NestedNode<N: Node> {
+#[derive(Debug, PartialEq, Eq)]
+pub struct NestedNode<T, N: Node<T>> {
     root: Rc<N>,
     curr: N,
-    parent: Option<Rc<NestedNode<N>>>,
+    parent: Option<Rc<NestedNode<T, N>>>,
     depth: usize,
+    _marker: std::marker::PhantomData<T>,
 }
 
-impl<N: Node> NestedNode<N> {
+impl<T, N: Node<T>> Clone for NestedNode<T, N> {
+    fn clone(&self) -> Self {
+        NestedNode {
+            root: self.root.clone(),
+            curr: self.curr.clone(),
+            parent: self.parent.clone(),
+            depth: self.depth,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T, N: Node<T>> NestedNode<T, N> {
     /// Creates a new `NestedNode` with the given root and depth.
     ///
     /// The `depth` indicates how many times the tree can be traversed and nested.
@@ -21,11 +34,12 @@ impl<N: Node> NestedNode<N> {
             curr: root,
             parent: None,
             depth,
+            _marker: std::marker::PhantomData,
         }
     }
 
     /// Returns an iterator of the nodes from the current node to the root.
-    pub fn chain(&self) -> impl Iterator<Item = &N> {
+    pub fn chain_rev(&self) -> impl Iterator<Item = &N> {
         let mut current = Some(self);
         std::iter::from_fn(move || {
             if let Some(node) = current {
@@ -36,16 +50,23 @@ impl<N: Node> NestedNode<N> {
             }
         })
     }
+
+    /// Returns a vector of the nodes from the root node to the current.
+    pub fn chain(&self) -> Vec<&N> {
+        let mut chain = self.chain_rev().into_iter().collect::<Vec<_>>();
+        chain.reverse();
+        chain
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NestedNodeIter<N: Node> {
-    node: NestedNode<N>,
+pub struct NestedNodeIter<T, N: Node<T>> {
+    node: NestedNode<T, N>,
     children: N::Children,
 }
 
-impl<N: Node> Iterator for NestedNodeIter<N> {
-    type Item = (u8, NestedNode<N>);
+impl<T, N: Node<T>> Iterator for NestedNodeIter<T, N> {
+    type Item = (T, NestedNode<T, N>);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.children.next() {
@@ -55,6 +76,7 @@ impl<N: Node> Iterator for NestedNodeIter<N> {
                     curr: child,
                     parent: self.node.parent.clone(),
                     depth: self.node.depth,
+                    _marker: std::marker::PhantomData,
                 };
                 Some((byte, node_new))
             }
@@ -64,6 +86,7 @@ impl<N: Node> Iterator for NestedNodeIter<N> {
                     curr: self.node.root.as_ref().clone(),
                     parent: Some(Rc::new(self.node.clone())),
                     depth: self.node.depth - 1,
+                    _marker: std::marker::PhantomData,
                 };
                 self.children = self.node.curr.children();
                 self.next()
@@ -73,8 +96,8 @@ impl<N: Node> Iterator for NestedNodeIter<N> {
     }
 }
 
-impl<N: Node> Node for NestedNode<N> {
-    type Children = NestedNodeIter<N>;
+impl<T, N: Node<T>> Node<T> for NestedNode<T, N> {
+    type Children = NestedNodeIter<T, N>;
 
     fn children(&self) -> Self::Children {
         NestedNodeIter {

@@ -7,17 +7,17 @@ use smallvec::{SmallVec, smallvec};
 use std::{any::type_name_of_val, fmt::Debug};
 
 #[derive(Debug)]
-enum HeadPos<N: Node> {
+enum HeadPos<N: Node<u8>> {
     This(N),
     Children(N::Children),
 }
 
-struct Head<N: Node> {
+struct Head<N: Node<u8>> {
     state: Option<StateID>,
     pos: HeadPos<N>,
 }
 
-impl<N: Node + Debug> Debug for Head<N>
+impl<N: Node<u8> + Debug> Debug for Head<N>
 where
     N::Children: Debug,
 {
@@ -29,7 +29,7 @@ where
     }
 }
 
-impl<N: Node> Head<N> {
+impl<N: Node<u8>> Head<N> {
     fn new(node: N, state: StateID) -> Self {
         Self {
             state: Some(state),
@@ -44,12 +44,12 @@ impl<N: Node> Head<N> {
     }
 }
 
-pub struct MultiHeadDFA<'d, DFA: Automaton, N: Node> {
+pub struct MultiHeadDFA<'d, DFA: Automaton, N: Node<u8>> {
     dfa: &'d DFA,
     heads: SmallVec<[Head<N>; 32]>,
 }
 
-impl<DFA: Automaton, N: Node + Debug> Debug for MultiHeadDFA<'_, DFA, N>
+impl<DFA: Automaton, N: Node<u8> + Debug> Debug for MultiHeadDFA<'_, DFA, N>
 where
     N::Children: Debug,
 {
@@ -60,7 +60,7 @@ where
     }
 }
 
-impl<'d, DFA: Automaton, N: Node> MultiHeadDFA<'d, DFA, N> {
+impl<'d, DFA: Automaton, N: Node<u8>> MultiHeadDFA<'d, DFA, N> {
     pub fn new(dfa: &'d DFA, node: N) -> Result<Self, regex_automata::dfa::StartError> {
         let first = Head::new(node, dfa.start_state(&Config::new())?);
         Ok(Self {
@@ -70,7 +70,7 @@ impl<'d, DFA: Automaton, N: Node> MultiHeadDFA<'d, DFA, N> {
     }
 }
 
-impl<DFA: Automaton, N: Node> Iterator for MultiHeadDFA<'_, DFA, N>
+impl<DFA: Automaton, N: Node<u8>> Iterator for MultiHeadDFA<'_, DFA, N>
 where
     Self: Debug,
     N: Debug,

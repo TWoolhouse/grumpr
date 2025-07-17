@@ -1,9 +1,9 @@
 use crate::{
     librarian::search::Node,
-    trie::{iter::Bytes, Key, Trie},
+    trie::{Key, Trie, iter::Bytes},
 };
 
-impl<'a, K: Key + 'a, V: 'a> Node for &'a Trie<K, V> {
+impl<'a, K: Key + 'a, V: 'a> Node<u8> for &'a Trie<K, V> {
     type Children = Bytes<'a, K, V>;
 
     fn children(&self) -> Self::Children {
