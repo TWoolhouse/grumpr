@@ -20,6 +20,12 @@ impl Key for String {
     }
 }
 
+impl Key for &str {
+    fn as_bytes(&self) -> impl IntoIterator<Item = u8> + '_ {
+        self.bytes()
+    }
+}
+
 impl Key for str {
     fn as_bytes(&self) -> impl IntoIterator<Item = u8> + '_ {
         self.bytes()

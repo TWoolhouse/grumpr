@@ -54,7 +54,7 @@ fn iter_bytes() {
     let found_bytes = trie.bytes().map(|(byte, _)| byte).sorted().collect_vec();
     let expected_bytes: Vec<u8> = keys
         .iter()
-        .map(|key| key.as_bytes()[0])
+        .map(|key| key.as_bytes().into_iter().next().unwrap())
         .sorted()
         .collect_vec();
 

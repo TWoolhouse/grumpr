@@ -50,3 +50,13 @@ impl<'a, K: Key, V> Iterator for Bytes<'a, K, V> {
         }
     }
 }
+
+impl<K: Key, V> FromIterator<(K, V)> for Trie<K, V> {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        let mut trie = Trie::new();
+        for (key, value) in iter {
+            trie.insert(key, value);
+        }
+        trie
+    }
+}
