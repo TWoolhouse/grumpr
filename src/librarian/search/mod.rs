@@ -2,6 +2,7 @@ mod nest;
 pub use nest::NestedNode as Nest;
 mod multi_dfa;
 pub use multi_dfa::MultiHeadDFA;
+pub mod levenshtein;
 mod nodes;
 pub mod permutation;
 pub mod query;

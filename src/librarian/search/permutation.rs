@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use regex::Regex;
-use regex_automata::nfa::thompson::Transition;
+use regex_automata::{nfa::thompson::Transition, util::look::Look};
 
 use crate::librarian::Result;
 
@@ -8,12 +8,14 @@ pub fn dfa_exact(string: &str) -> Result<regex_automata::dfa::dense::DFA<Vec<u32
     let mut builder = regex_automata::nfa::thompson::Builder::new();
     builder.start_pattern()?;
 
-    let state_start = builder.add_union(Vec::with_capacity(string.len()))?;
+    let state_boundary = builder.add_union(Vec::with_capacity(string.len()))?;
+    let state_start = builder.add_look(state_boundary, Look::Start)?;
     let state_match = builder.add_match()?;
+    let state_end = builder.add_look(state_match, Look::End)?;
 
     for perm in string.chars().permutations(string.len()) {
         let perm = perm.into_iter().collect::<String>();
-        let mut next = state_match;
+        let mut next = state_end;
         for c in perm.bytes().rev() {
             let state = builder.add_range(Transition {
                 start: c,
@@ -22,7 +24,7 @@ pub fn dfa_exact(string: &str) -> Result<regex_automata::dfa::dense::DFA<Vec<u32
             })?;
             next = state;
         }
-        builder.patch(state_start, next)?;
+        builder.patch(state_boundary, next)?;
     }
 
     builder.finish_pattern(state_start)?;
@@ -33,7 +35,7 @@ pub fn dfa_exact(string: &str) -> Result<regex_automata::dfa::dense::DFA<Vec<u32
     Ok(dfa)
 }
 
-pub fn dfa_partial(
+pub fn dfa_quick_filter(
     string: &str,
     _wildcards: usize,
 ) -> Result<regex_automata::dfa::dense::DFA<Vec<u32>>> {

@@ -12,6 +12,9 @@ fn dataset() -> Vec<&'static str> {
         "test",
         "seed",
         "library",
+        "pear",
+        "pears",
+        "spear",
     ]
 }
 
@@ -111,4 +114,46 @@ fn anagrams() {
         assert!(gram.word().is_some());
         assert_eq!(gram.word().unwrap().root, "rust");
     }
+
+    let query = QueryAnagram::new("reap");
+    let results = librarian.anagrams(&query).unwrap();
+    assert_eq!(results.len(), 1);
+    for gram in results {
+        assert!(gram.word().is_some());
+        assert_eq!(gram.word().unwrap().root, "pear");
+    }
+}
+
+#[test]
+fn nearest() {
+    let dataset = dataset();
+    let library = library_from_dataset(dataset.iter().copied());
+    let librarian = Librarian::from(&library);
+
+    // Search for nearest words
+    let query = QueryNearest::new("librar", 5);
+    let (results, distance) = librarian.nearest(&query).unwrap();
+    assert_eq!(distance, 1);
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results.iter().next().unwrap().word().unwrap().root,
+        "library"
+    );
+}
+
+#[test]
+fn distance() {
+    let dataset = dataset();
+    let library = library_from_dataset(dataset.iter().copied());
+    let librarian = Librarian::from(&library);
+
+    let query = QueryDistance::new("librar", [3]);
+    let results = librarian.distance(&query).unwrap();
+    assert_eq!(results.len(), 2);
+    // librarian & library
+    // library has a distance of 3 from "librar" as you can add & delete in pairs
+
+    let query = QueryDistance::new("librar", [3]).strict(true);
+    let results = librarian.distance(&query).unwrap();
+    assert_eq!(results.len(), 1);
 }

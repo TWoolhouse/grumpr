@@ -14,6 +14,8 @@ pub enum Error {
     DFASearch(#[from] StartError),
     #[error(transparent)]
     Regex(#[from] regex::Error),
+    #[error("Failed to find any grams up to {0} differences from the pattern")]
+    NoNearest(u8),
 }
 
 impl From<dense::BuildError> for Error {

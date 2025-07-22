@@ -5,13 +5,13 @@ mod error;
 pub use error::{Error, Result};
 mod grams;
 mod search;
-pub use search::query::{QueryAnagram, QuerySearch};
+pub use search::query::{QueryAnagram, QueryDistance, QueryNearest, QuerySearch};
 #[cfg(test)]
 mod test;
 pub use grams::Gram;
 use grams::LibGram;
 use regex::Regex;
-use regex_automata::dfa::Automaton;
+use regex_automata::{dfa::Automaton, util::primitives::StateID};
 
 use crate::{
     librarian::search::{MultiHeadDFA, Nest},
@@ -28,6 +28,7 @@ pub struct Seed {
     count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Librarian<'l> {
     library: &'l Library,
     grams: Vec<LibGram<'l>>,
@@ -77,8 +78,59 @@ impl<'l> Librarian<'l> {
         })
     }
     /// Nearest word search
-    // fn nearest(&self, pattern: &str) -> Option<&Seed>; // impl Librarian + '_;
-    pub fn nearest(&self) {}
+    /// Finds the nearest word to the given pattern using the Levenshtein distance.
+    pub fn nearest(&self, query: &QueryNearest<'_>) -> Result<(Self, usize)> {
+        let trie = Trie::from(self);
+        let (dfa, dist_fn) = search::levenshtein::automata(query.pattern, 0..=query.distance)?;
+        let lgrams = self.search_trie_state(&trie, &dfa, 0)?;
+        let distance_id = lgrams
+            .iter()
+            .min_by_key(|(_, state)| dist_fn(&dfa, *state))
+            .ok_or(Error::NoNearest(query.distance))?
+            .1;
+
+        Ok((
+            Self {
+                library: self.library,
+                grams: lgrams
+                    .into_iter()
+                    .filter_map(|(lgram, state_id)| (state_id == distance_id).then_some(lgram))
+                    .collect(),
+            },
+            dist_fn(&dfa, distance_id) as usize,
+        ))
+    }
+
+    /// Find seeds with a Levenshtein distance to the given pattern.
+    pub fn distance(&self, query: &QueryDistance<'_>) -> Result<Self> {
+        let trie = Trie::from(self);
+
+        // Strict requires us to match all distances, then filter out for the query distances.
+        // because it matches using the shortest distance.
+        let grams = if query.strict {
+            let (dfa, dist_fn) = search::levenshtein::automata(
+                query.pattern,
+                0..=query.distances.iter().max().copied().unwrap_or(0),
+            )?;
+            let lgrams = self.search_trie_state(&trie, &dfa, 0)?;
+            lgrams
+                .into_iter()
+                .filter_map(|(lgram, state)| {
+                    let distance = dist_fn(&dfa, state);
+                    (query.distances.contains(&distance)).then_some(lgram)
+                })
+                .collect()
+        } else {
+            let (dfa, _) =
+                search::levenshtein::automata(query.pattern, query.distances.iter().copied())?;
+            self.search_trie(&trie, &dfa, 0)?
+        };
+
+        Ok(Self {
+            library: self.library,
+            grams,
+        })
+    }
 
     /// Find annagrams
     pub fn anagrams(&self, query: &QueryAnagram<'_>) -> Result<Self> {
@@ -176,11 +228,32 @@ impl<'l> Librarian<'l> {
         let search = MultiHeadDFA::new(dfa, Nest::new(trie, depth))?;
 
         Ok(search
-            .map(|node| {
+            .map(|(node, _)| {
                 node.chain()
                     .into_iter()
                     .map(|t| t.value.expect("Returned Nodes are leaves"))
                     .collect()
+            })
+            .collect())
+    }
+
+    fn search_trie_state(
+        &self,
+        trie: &Trie<String, &LibGram<'l>>,
+        dfa: &impl Automaton,
+        depth: usize,
+    ) -> Result<Vec<(LibGram<'l>, StateID)>> {
+        let search = MultiHeadDFA::new(dfa, Nest::new(trie, depth))?;
+
+        Ok(search
+            .map(|(node, state_id)| {
+                (
+                    node.chain()
+                        .into_iter()
+                        .map(|t| t.value.expect("Returned Nodes are leaves"))
+                        .collect(),
+                    state_id,
+                )
             })
             .collect())
     }
@@ -210,7 +283,7 @@ impl<'l> Librarian<'l> {
 
     fn anagrams_deep(&self, query: &QueryAnagram<'_>) -> Result<Vec<LibGram<'l>>> {
         let trie = Trie::from(self);
-        let dfa = search::permutation::dfa_partial(query.pattern, query.wildcards)?;
+        let dfa = search::permutation::dfa_quick_filter(query.pattern, query.wildcards)?;
         let partial = self.search_trie(&trie, &dfa, query.repeats)?;
 
         Ok(partial)

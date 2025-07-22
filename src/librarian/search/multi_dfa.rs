@@ -13,7 +13,8 @@ enum HeadPos<N: Node<u8>> {
 }
 
 struct Head<N: Node<u8>> {
-    state: Option<StateID>,
+    accepting: bool,
+    state: StateID,
     pos: HeadPos<N>,
 }
 
@@ -32,13 +33,15 @@ where
 impl<N: Node<u8>> Head<N> {
     fn new(node: N, state: StateID) -> Self {
         Self {
-            state: Some(state),
+            state,
+            accepting: false,
             pos: HeadPos::This(node),
         }
     }
-    fn accepting(node: N) -> Self {
+    fn accepting(node: N, state: StateID) -> Self {
         Self {
-            state: None,
+            state,
+            accepting: true,
             pos: HeadPos::This(node),
         }
     }
@@ -75,28 +78,30 @@ where
     Self: Debug,
     N: Debug,
 {
-    type Item = N;
+    type Item = (N, StateID);
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(head) = self.heads.last_mut() {
-            if let Some(state) = head.state {
+            if !head.accepting {
                 match head.pos {
                     HeadPos::This(ref node) => {
                         let node = node.clone();
                         head.pos = HeadPos::Children(node.children());
-                        if node.is_leaf() && self.dfa.is_match_state(self.dfa.next_eoi_state(state))
-                        {
-                            return Some(node);
+                        if node.is_leaf() {
+                            let state = self.dfa.next_eoi_state(head.state);
+                            if self.dfa.is_match_state(state) {
+                                return Some((node, state));
+                            }
                         }
                     }
                     HeadPos::Children(ref mut children) => {
                         if let Some((byte, child)) = children.next() {
-                            let state = self.dfa.next_state(state, byte);
+                            let state = self.dfa.next_state(head.state, byte);
                             if self.dfa.is_dead_state(state) {
                                 continue;
                             }
                             if self.dfa.is_match_state(state) {
-                                self.heads.push(Head::accepting(child));
+                                self.heads.push(Head::accepting(child, state));
                             } else {
                                 self.heads.push(Head::new(child, state));
                             }
@@ -107,17 +112,18 @@ where
                     }
                 }
             } else {
+                let state = head.state;
                 match head.pos {
                     HeadPos::This(ref node) => {
                         let node = node.clone();
                         head.pos = HeadPos::Children(node.children());
                         if node.is_leaf() {
-                            return Some(node.clone());
+                            return Some((node.clone(), head.state));
                         }
                     }
                     HeadPos::Children(ref mut children) => {
                         if let Some((_, child)) = children.next() {
-                            self.heads.push(Head::accepting(child));
+                            self.heads.push(Head::accepting(child, state));
                         } else {
                             self.heads.pop();
                         }

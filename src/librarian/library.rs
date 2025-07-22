@@ -1,6 +1,6 @@
 use crate::librarian::Seed;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Library {
     pub(super) seeds: Vec<Seed>,
 }
