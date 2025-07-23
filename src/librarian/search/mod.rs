@@ -1,10 +1,8 @@
-mod nest;
-pub use nest::NestedNode as Nest;
+pub mod automata;
 mod multi_dfa;
 pub use multi_dfa::MultiHeadDFA;
-pub mod levenshtein;
-mod nodes;
-pub mod permutation;
+mod node;
+pub use node::NestedNode as Nest;
 pub mod query;
 
 pub trait Node<T>: Clone {

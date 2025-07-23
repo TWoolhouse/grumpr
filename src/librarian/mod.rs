@@ -81,7 +81,7 @@ impl<'l> Librarian<'l> {
     /// Finds the nearest word to the given pattern using the Levenshtein distance.
     pub fn nearest(&self, query: &QueryNearest<'_>) -> Result<(Self, usize)> {
         let trie = Trie::from(self);
-        let (dfa, dist_fn) = search::levenshtein::automata(query.pattern, 0..=query.distance)?;
+        let (dfa, dist_fn) = search::automata::levenshtein(query.pattern, 0..=query.distance)?;
         let lgrams = self.search_trie_state(&trie, &dfa, 0)?;
         let distance_id = lgrams
             .iter()
@@ -108,7 +108,7 @@ impl<'l> Librarian<'l> {
         // Strict requires us to match all distances, then filter out for the query distances.
         // because it matches using the shortest distance.
         let grams = if query.strict {
-            let (dfa, dist_fn) = search::levenshtein::automata(
+            let (dfa, dist_fn) = search::automata::levenshtein(
                 query.pattern,
                 0..=query.distances.iter().max().copied().unwrap_or(0),
             )?;
@@ -122,7 +122,7 @@ impl<'l> Librarian<'l> {
                 .collect()
         } else {
             let (dfa, _) =
-                search::levenshtein::automata(query.pattern, query.distances.iter().copied())?;
+                search::automata::levenshtein(query.pattern, query.distances.iter().copied())?;
             self.search_trie(&trie, &dfa, 0)?
         };
 
@@ -282,8 +282,12 @@ impl<'l> Librarian<'l> {
     }
 
     fn anagrams_deep(&self, query: &QueryAnagram<'_>) -> Result<Vec<LibGram<'l>>> {
+        debug_assert_eq!(
+            query.wildcards, 0,
+            "Not supported yet cause it would dupe the whole trie"
+        );
         let trie = Trie::from(self);
-        let dfa = search::permutation::dfa_quick_filter(query.pattern, query.wildcards)?;
+        let dfa = search::automata::anagram_filter(query.pattern)?;
         let partial = self.search_trie(&trie, &dfa, query.repeats)?;
 
         Ok(partial)
@@ -297,7 +301,7 @@ impl<'l> Librarian<'l> {
         debug_assert_eq!(query.wildcards, 0, "idk how to handle this yet");
 
         let trie = Trie::from(self);
-        let dfa = search::permutation::dfa_exact(query.pattern)?;
+        let dfa = search::automata::anagram(query.pattern)?;
         self.search_trie(&trie, &dfa, query.repeats)
     }
 
