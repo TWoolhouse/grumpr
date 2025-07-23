@@ -1,4 +1,6 @@
 mod library;
+use std::collections::HashMap;
+
 use itertools::Itertools;
 pub use library::Library;
 mod error;
@@ -136,13 +138,15 @@ impl<'l> Librarian<'l> {
     pub fn anagrams(&self, query: &QueryAnagram<'_>) -> Result<Self> {
         let grams = if query.repeats > 0 {
             if query.wildcards > 0 || query.len() >= 8 {
-                let partial = self.anagrams_deep(query)?;
-                Self::anagrams_flat(self.library, &partial, &QueryAnagram::new(query.pattern))
+                let first_pass = self.anagrams_deep(query)?;
+                Self::anagrams_flat(self.library, &first_pass, &query.clone().repeating(0))
                     .cloned()
                     .collect()
             } else {
                 self.anagrams_fast(query)?
             }
+        } else if query.partial {
+            self.anagrams_partial(query)?
         } else {
             Self::anagrams_flat(self.library, &self.grams, query)
                 .cloned()
@@ -286,6 +290,7 @@ impl<'l> Librarian<'l> {
             query.wildcards, 0,
             "Not supported yet cause it would dupe the whole trie"
         );
+        debug_assert_eq!(query.partial, false, "Partial anagram search not supported");
         let trie = Trie::from(self);
         let dfa = search::automata::anagram_filter(query.pattern)?;
         let partial = self.search_trie(&trie, &dfa, query.repeats)?;
@@ -299,6 +304,7 @@ impl<'l> Librarian<'l> {
             "Anagram search is not optimized for long patterns"
         );
         debug_assert_eq!(query.wildcards, 0, "idk how to handle this yet");
+        debug_assert_eq!(query.partial, false, "Partial anagram search not supported");
 
         let trie = Trie::from(self);
         let dfa = search::automata::anagram(query.pattern)?;
@@ -321,6 +327,10 @@ impl<'l> Librarian<'l> {
             query.repeats, 0,
             "Flat anagram search does not support repeats"
         );
+        debug_assert_eq!(
+            query.partial, false,
+            "Flat anagram search does not support partial"
+        );
         let pattern: String = query.pattern.chars().sorted().collect();
         grams.into_iter().filter(move |lgram| match lgram {
             LibGram::Word(idx, ..) => library.seeds[*idx]
@@ -333,6 +343,69 @@ impl<'l> Librarian<'l> {
                 key.sorted().eq(pattern.bytes())
             }
         })
+    }
+
+    fn anagrams_partial(&self, query: &QueryAnagram<'_>) -> Result<Vec<LibGram<'l>>> {
+        debug_assert_eq!(
+            query.wildcards, 0,
+            "Partial anagram search does not support wildcards"
+        );
+        debug_assert_eq!(
+            query.repeats, 0,
+            "Partial anagram search does not support repeats"
+        );
+
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        struct Anagram<'l> {
+            histogram: HashMap<char, usize>,
+            grams: Vec<LibGram<'l>>,
+        }
+
+        let mut anagrams: HashMap<String, Anagram<'l>> = HashMap::new();
+        for lgram in &self.grams {
+            let key = match lgram {
+                LibGram::Word(idx, ..) => self.library.seeds[*idx].root.chars().sorted().collect(),
+                LibGram::Sequence(indices, ..) => indices
+                    .iter()
+                    .flat_map(|&i| self.library.seeds[i].root.chars())
+                    .collect(),
+            };
+            anagrams
+                .entry(key)
+                .or_insert_with_key(|key| Anagram {
+                    histogram: key.chars().fold(HashMap::new(), |mut acc, c| {
+                        *acc.entry(c).or_insert(0) += 1;
+                        acc
+                    }),
+                    grams: Vec::with_capacity(1),
+                })
+                .grams
+                .push(lgram.clone());
+        }
+
+        let pattern = query.pattern.chars().sorted().collect::<String>();
+        let pattern_histogram = pattern.chars().fold(HashMap::new(), |mut acc, c| {
+            *acc.entry(c).or_insert(0) += 1;
+            acc
+        });
+
+        Ok(anagrams
+            .into_values()
+            .filter(|anagram| {
+                let mut wildcards = query.wildcards as isize;
+                for (c, count) in anagram.histogram.iter() {
+                    let pcount = pattern_histogram.get(c).unwrap_or(&0);
+                    if pcount < count {
+                        wildcards -= (count - pcount) as isize;
+                        if wildcards < 0 {
+                            return false; // Too many characters
+                        }
+                    }
+                }
+                true // All characters matched (or partially matched) / we have enough wildcards
+            })
+            .flat_map(|anagram| anagram.grams)
+            .collect())
     }
 }
 

@@ -122,6 +122,10 @@ fn anagrams() {
         assert!(gram.word().is_some());
         assert_eq!(gram.word().unwrap().root, "pear");
     }
+
+    let query = QueryAnagram::new("pears").partial(true);
+    let results = librarian.anagrams(&query).unwrap();
+    assert_eq!(results.len(), 3);
 }
 
 #[test]

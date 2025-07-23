@@ -23,6 +23,7 @@ pub struct QueryAnagram<'a> {
     pub(in crate::librarian) pattern: &'a str,
     pub(in crate::librarian) wildcards: usize,
     pub(in crate::librarian) repeats: usize,
+    pub(in crate::librarian) partial: bool,
 }
 
 impl QueryAnagram<'_> {
@@ -37,6 +38,7 @@ impl<'a> QueryAnagram<'a> {
             pattern,
             wildcards: 0,
             repeats: 0,
+            partial: false,
         }
     }
 
@@ -47,6 +49,11 @@ impl<'a> QueryAnagram<'a> {
 
     pub fn repeating(mut self, times: usize) -> Self {
         self.repeats = times;
+        self
+    }
+
+    pub fn partial(mut self, partial: bool) -> Self {
+        self.partial = partial;
         self
     }
 }
