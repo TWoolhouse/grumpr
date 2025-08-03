@@ -66,7 +66,7 @@ impl<T, N: Node<T>> NestedNode<T, N> {
 
     /// Returns a vector of the nodes from the root node to the current.
     pub fn chain(&self) -> Vec<&N> {
-        let mut chain = self.chain_rev().into_iter().collect::<Vec<_>>();
+        let mut chain = self.chain_rev().collect::<Vec<_>>();
         chain.reverse();
         chain
     }

@@ -22,13 +22,12 @@ fn build_utf8_sequences(
         let start = sequence
             .into_iter()
             .rev()
-            .fold(Ok(state_end), |next, range| match next {
-                Ok(next) => builder.add_range(Transition {
+            .try_fold(state_end, |next, range| {
+                builder.add_range(Transition {
                     start: range.start,
                     end: range.end,
                     next,
-                }),
-                x => x,
+                })
             })?;
         transitions.push(start);
     }
@@ -203,7 +202,7 @@ pub fn anagram(pattern: &str) -> Result<regex_automata::dfa::dense::DFA<Vec<u32>
 /// but not necessarily in the same order.
 /// This is useful for filtering potential anagrams before performing a more expensive exact match.
 pub fn anagram_filter(pattern: &str) -> Result<regex_automata::dfa::dense::DFA<Vec<u32>>> {
-    let mut re = String::with_capacity(pattern.as_bytes().len() + 16);
+    let mut re = String::with_capacity(pattern.len() + 16);
 
     re.push_str(r"^[");
     re.push_str(pattern);
