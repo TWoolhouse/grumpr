@@ -25,16 +25,18 @@ clio = { version = "0.3.5", features = ["clap-parse"], optional = true }
 csv = { version = "1.2.1", optional = true }
 include-flate = { version = "0.3.0", optional = true }
 serde = { version = "1.0.159", features = ["derive"], optional = true }
-
-unicode-segmentation = "1.10.1"
-unicode_categories = "0.1.1"
-cached = "0.52.0"
-encoding_rs_io = "0.1.7"
-encoding_rs = "0.8.35"
+unicode-segmentation = { version = "1.10.1", optional = true }
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:clio", "dep:csv", "dep:include-flate", "serde"]
+cli = [
+	"dep:clap",
+	"dep:clio",
+	"dep:csv",
+	"dep:include-flate",
+	"serde",
+	"dep:unicode-segmentation",
+]
 serde = ["dep:serde"]
 
 [[bin]]
