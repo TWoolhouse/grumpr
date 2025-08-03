@@ -34,6 +34,14 @@ impl<'l> Gram<'l> {
     }
 
     #[must_use]
+    pub fn seeds(self) -> Vec<&'l Seed> {
+        match self {
+            Gram::Word(seed) => vec![seed],
+            Gram::Sequence(seeds) => seeds,
+        }
+    }
+
+    #[must_use]
     fn degrade(self) -> Self {
         use Gram::*;
         match self {
@@ -44,6 +52,7 @@ impl<'l> Gram<'l> {
 }
 
 impl<'l> LibGram<'l> {
+    #[inline]
     #[must_use]
     pub fn into_gram(self, library: &'l Library) -> Gram<'l> {
         match self {
@@ -54,6 +63,8 @@ impl<'l> LibGram<'l> {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn as_gram(&self, library: &'l Library) -> Gram<'l> {
         match self {
             LibGram::Word(index, _) => Gram::Word(&library.seeds[*index]),
