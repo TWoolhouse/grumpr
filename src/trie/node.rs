@@ -50,7 +50,7 @@ impl<K: Key, V> Trie<K, V> {
     }
 
     #[must_use]
-    pub fn get<Q>(&self, key: &Q) -> Option<&V>
+    pub fn _get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
         Q: Key + ?Sized,

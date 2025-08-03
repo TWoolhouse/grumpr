@@ -8,7 +8,7 @@ fn single() {
     let key = "abcde";
     let value = 42;
     trie.insert(key, value);
-    assert_eq!(trie.get(key), Some(&value));
+    assert_eq!(trie._get(key), Some(&value));
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn multiple_unique() {
     }
 
     for (&key, value) in keys.iter().zip(values.iter()) {
-        assert_eq!(trie.get(key), Some(value));
+        assert_eq!(trie._get(key), Some(value));
     }
 }
 
@@ -37,7 +37,7 @@ fn multiple_overlapping() {
     }
 
     for (&key, value) in keys.iter().zip(values.iter()) {
-        assert_eq!(trie.get(key), Some(value));
+        assert_eq!(trie._get(key), Some(value));
     }
 }
 
