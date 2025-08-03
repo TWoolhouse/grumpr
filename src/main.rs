@@ -2,7 +2,8 @@ mod cli;
 use clap::Parser;
 use grumpr::librarian::{Gram, Librarian, Library, query};
 use itertools::Itertools;
-use std::{io::BufRead, process::ExitCode};
+use std::{collections::HashMap, io::BufRead, process::ExitCode};
+use unicode_segmentation::UnicodeSegmentation;
 
 fn main() -> ExitCode {
     match try_main() {
@@ -160,13 +161,8 @@ fn process_cmd_n(
 }
 
 fn get_library(opts: Option<cli::OptsLibrary>) -> Result<Library, Box<dyn std::error::Error>> {
-    use cli::{BuiltinOrFile, LibraryFormat, OptsLibrary};
-
-    let mut opts = opts.unwrap_or_else(|| OptsLibrary {
-        file: Default::default(),
-        format: None,
-        build: false,
-    });
+    use cli::{BuiltinOrFile, LibraryFormat};
+    let mut opts = opts.unwrap_or_default();
 
     if opts.build {
         if matches!(opts.file, BuiltinOrFile::Builtin(_)) {
@@ -174,7 +170,7 @@ fn get_library(opts: Option<cli::OptsLibrary>) -> Result<Library, Box<dyn std::e
         }
 
         let file = opts.file.reader();
-        library_build(file)
+        library_build(file, opts.threshold, opts.ignore_case)
     } else {
         let format = match &opts.file {
             BuiltinOrFile::Builtin(_) => {
@@ -208,8 +204,29 @@ fn get_library(opts: Option<cli::OptsLibrary>) -> Result<Library, Box<dyn std::e
     }
 }
 
-fn library_build(file: impl std::io::Read) -> Result<Library, Box<dyn std::error::Error>> {
-    todo!("Implement library build from string of words");
+fn library_build(
+    file: impl std::io::BufRead,
+    threshold: u64,
+    ignore_case: bool,
+) -> Result<Library, Box<dyn std::error::Error>> {
+    let mut counter = HashMap::<String, u64>::new();
+
+    for line in file.lines() {
+        let line = line?;
+        for word in line.unicode_words() {
+            let word = if ignore_case {
+                word.to_lowercase()
+            } else {
+                word.to_string()
+            };
+            *counter.entry(word).or_default() += 1;
+        }
+    }
+
+    Ok(counter
+        .into_iter()
+        .filter(|(_, count)| *count >= threshold)
+        .collect())
 }
 
 fn library_parse(

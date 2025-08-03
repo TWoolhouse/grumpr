@@ -123,7 +123,7 @@ pub struct OptsHas {
     pub characters: String,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Default, Args)]
 pub struct OptsLibrary {
     /// Path to the library file.
     pub file: BuiltinOrFile<BuiltinsLibrary>,
@@ -133,6 +133,13 @@ pub struct OptsLibrary {
     /// Build the library from a string of words.
     #[arg(short, long, conflicts_with = "format")]
     pub build: bool,
+    /// Minimum count of occurrences for a word to be included in the library.
+    #[arg(short, long, default_value_t = 1, requires = "build")]
+    pub threshold: u64,
+    /// Ignore case when building the library.
+    /// This will convert all words to lowercase.
+    #[arg(short, long, default_value_t = false, requires = "build")]
+    pub ignore_case: bool,
 }
 
 #[derive(Debug, ValueEnum, Clone, Copy, PartialEq, Eq)]
