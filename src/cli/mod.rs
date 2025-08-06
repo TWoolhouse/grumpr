@@ -3,7 +3,7 @@ pub use enumfile::BuiltinOrFile;
 mod builtins;
 mod reclap;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use reclap::ReClap;
+pub use reclap::ReClap;
 
 use crate::cli::builtins::impl_builtin_file;
 
@@ -45,8 +45,12 @@ pub enum CmdI {
 #[derive(Debug, Subcommand)]
 #[command(subcommand_precedence_over_arg = true)]
 pub enum CmdN {
-    /// Display options?
-    Show(OptsShow),
+    /// Print the results.
+    Show(ReClap<OptsShow, Self>),
+    /// Write the library to a file.
+    Write(ReClap<OptsWrite, Self>),
+    /// Display statistics about the library.
+    Stats(ReClap<OptsStats, Self>),
 }
 
 #[derive(Debug, Args)]
@@ -148,10 +152,44 @@ pub enum LibraryFormat {
     TSV,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Default, Args)]
 pub struct OptsShow {
-    /// unimplemented
+    /// Add a header to the output denoting the columns.
+    #[arg(short, long)]
+    pub title: bool,
+    /// Rank of the word in the local library.
+    #[arg(short, long)]
+    pub rank: bool,
+    /// Global index of the word in the library.
+    #[arg(short, long)]
+    pub index: bool,
+    /// Occurrences of the word in the global library.
+    #[arg(short, long)]
+    pub count: bool,
+    /// Frequency of the word in the local library.
+    #[arg(short, long)]
+    pub frequency: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct OptsWrite {
+    /// TODO: unimplemented
     pub unimplemented: String,
+}
+
+#[derive(Debug, Args)]
+pub struct OptsStats {
+    #[arg(short, long, value_enum, default_value_t = StatFormat::Human)]
+    pub format: StatFormat,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, ValueEnum)]
+pub enum StatFormat {
+    /// Print the stats in a human-readable format.
+    #[default]
+    Human,
+    /// Print the stats in a machine-readable format (JSON).
+    Json,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, ValueEnum)]

@@ -1,8 +1,12 @@
 mod cli;
 use clap::Parser;
-use grumpr::librarian::{Gram, Librarian, Library, query};
+use grumpr::librarian::{Gram, Librarian, Library, Stats, query};
 use itertools::Itertools;
-use std::{collections::HashMap, io::BufRead, process::ExitCode};
+use std::{
+    collections::HashMap,
+    io::{BufRead, Write},
+    process::ExitCode,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 fn main() -> ExitCode {
@@ -20,9 +24,7 @@ fn try_main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     let (library, cmd_i) = process_cmd_0(cli.cmd)?;
-    dbg!("Loaded library");
     let mut librarian: Librarian = (&library).into();
-    dbg!(librarian.len());
     let cmd_n = process_cmd_i(&mut librarian, cmd_i)?;
     process_cmd_n(librarian, cmd_n)?;
 
@@ -136,25 +138,77 @@ fn process_cmd_i(
 
 fn process_cmd_n(
     librarian: Librarian,
-    cmd_n: Option<cli::CmdN>,
+    mut cmd_n: Option<cli::CmdN>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use cli::CmdN;
 
-    match cmd_n {
-        Some(cmd_n) => match cmd_n {
+    // If no command was specified, default to showing the results
+    if cmd_n.is_none() {
+        cmd_n = Some(CmdN::Show(cli::ReClap::new(cli::OptsShow {
+            title: true,
+            rank: false,
+            index: true,
+            count: false,
+            frequency: true,
+        })));
+    }
+
+    while let Some(cmd) = cmd_n {
+        cmd_n = match cmd {
             CmdN::Show(opts) => {
-                todo!("{:#?}", opts);
-            }
-        },
-        None => {
-            // If no final command is specified, we just print the results
-            librarian.into_iter().for_each(|gram| match gram {
-                Gram::Word(word) => println!("{}", word.root),
-                Gram::Sequence(words) => {
-                    println!("{}", words.into_iter().map(|w| &w.root).join(" "))
+                let mut stdout = std::io::stdout().lock();
+                if opts.inner.title {
+                    writeln!(stdout, "{}", ShowHeader { opts: &opts.inner })?;
                 }
-            });
+                let total = if opts.inner.frequency {
+                    librarian.iter().map(|gram| gram.count_mean()).sum()
+                } else {
+                    0
+                };
+
+                // TODO: Expose to cli how to sort the results
+                // Also limit the number of results
+                let grams = librarian
+                    .iter()
+                    .enumerate()
+                    .sorted_by(|(_, lhs), (_, rhs)| lhs.cmp_by_count_mean(rhs))
+                    .rev();
+
+                // TODO: Format the results nicely in a table with padding
+                for (index, gram) in grams {
+                    let show_gram = ShowGram {
+                        gram,
+                        total,
+                        rank: index,
+                        opts: &opts.inner,
+                    };
+                    writeln!(stdout, "{}", show_gram)?;
+                }
+
+                opts.next
+            }
+            CmdN::Write(opts) => {
+                todo!("Write librarian to file {:#?}", opts);
+            }
+            CmdN::Stats(opts) => {
+                let stats = librarian.stats();
+                match opts.inner.format {
+                    cli::StatFormat::Human => {
+                        let show = ShowStats::from(stats);
+                        println!("{show}");
+                    }
+                    cli::StatFormat::Json => {
+                        let stdout = std::io::stdout().lock();
+                        serde_json::to_writer_pretty(stdout, &stats)?;
+                    }
+                }
+                // TODO: Page count, etc.
+
+                opts.next
+            }
         }
+        .take()
+        .map(|cmd| *cmd);
     }
 
     Ok(())
@@ -182,6 +236,8 @@ fn get_library(opts: Option<cli::OptsLibrary>) -> Result<Library, Box<dyn std::e
                     .ok_or(<Box<dyn std::error::Error>>::from(
                         "Built-in libraries must be in TSV format",
                     ))?
+                // TODO: Look at embedding the built-in in a faster format to read /
+                // mmap it directly as a Library?
             }
             BuiltinOrFile::File(file) if file.is_local() => {
                 // If the file is local, we can determine the format from the file extension
@@ -262,4 +318,128 @@ fn library_parse(
                 .collect::<csv::Result<Library>>()?
         }
     })
+}
+
+#[derive(Debug, Clone)]
+struct ShowHeader<'a> {
+    opts: &'a cli::OptsShow,
+}
+
+impl<'a> std::fmt::Display for ShowHeader<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "NGram\t")?;
+        if self.opts.rank {
+            write!(f, "Rank\t")?;
+        }
+        if self.opts.index {
+            write!(f, "Index\t")?;
+        }
+        if self.opts.frequency {
+            write!(f, "Frequency\t")?;
+        }
+        if self.opts.count {
+            write!(f, "Count\t")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ShowGram<'a, 'l> {
+    gram: Gram<'l>,
+    rank: usize,
+    total: u64,
+    opts: &'a cli::OptsShow,
+}
+
+impl<'a, 'l> std::fmt::Display for ShowGram<'a, 'l> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match &self.gram {
+            Gram::Word(seed) => {
+                write!(f, "{}\t", seed.root)?;
+                if self.opts.rank {
+                    write!(f, "{}\t", self.rank)?;
+                }
+                if self.opts.index {
+                    write!(f, "{}\t", seed.index)?;
+                }
+                if self.opts.frequency {
+                    write!(f, "{:.5}%\t", seed.count as f64 / self.total as f64 * 100.0)?;
+                }
+                if self.opts.count {
+                    write!(f, "{}\t", seed.count)?;
+                }
+            }
+            Gram::Sequence(seeds) => {
+                write!(f, "{}", seeds.into_iter().map(|w| &w.root).join(" "))?;
+                if self.opts.rank {
+                    write!(f, "\t{}", self.rank)?;
+                }
+                if self.opts.index {
+                    write!(f, "\t{}", seeds.iter().map(|s| s.index).join(","))?;
+                }
+                if self.opts.frequency {
+                    write!(
+                        f,
+                        "\t{:.5}%",
+                        seeds.iter().map(|s| s.count).sum::<u64>() as f64
+                            / seeds.len() as f64
+                            / self.total as f64
+                            * 100.0
+                    )?;
+                }
+                if self.opts.count {
+                    write!(
+                        f,
+                        "\t{}",
+                        seeds.iter().map(|s| s.count).sum::<u64>() / seeds.len() as u64
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct ShowStats(Stats);
+
+impl std::fmt::Display for ShowStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        writeln!(
+            f,
+            "Seeds       \t{}\t{}",
+            self.0.seeds, self.0.occurrences.seeds
+        )?;
+        writeln!(
+            f,
+            "NGrams      \t{}\t{}",
+            self.0.ngrams, self.0.occurrences.ngrams
+        )?;
+        writeln!(f, "NGram Seeds \t{}", self.0.ngram_seeds)?;
+        writeln!(
+            f,
+            "Chars Seeds \t{}\t{}",
+            self.0.chars_seeds, self.0.occurrences.chars_seeds
+        )?;
+        writeln!(
+            f,
+            "Chars NGrams\t{}\t{}",
+            self.0.chars_ngrams, self.0.occurrences.chars_ngrams
+        )?;
+
+        Ok(())
+    }
+}
+
+impl ShowStats {
+    fn new(stats: Stats) -> Self {
+        Self(stats)
+    }
+}
+
+impl From<Stats> for ShowStats {
+    fn from(value: Stats) -> Self {
+        Self::new(value)
+    }
 }

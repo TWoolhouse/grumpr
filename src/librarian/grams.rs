@@ -1,5 +1,6 @@
 use crate::librarian::{Library, Seed};
-use std::marker::PhantomData;
+use itertools::Itertools;
+use std::{borrow::Cow, marker::PhantomData};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Gram<'l> {
@@ -38,6 +39,77 @@ impl<'l> Gram<'l> {
         match self {
             Gram::Word(seed) => vec![seed],
             Gram::Sequence(seeds) => seeds,
+        }
+    }
+
+    pub fn root(&self) -> Cow<'l, str> {
+        match self {
+            Gram::Word(seed) => Cow::Borrowed(&seed.root),
+            Gram::Sequence(seeds) => Cow::Owned(seeds.iter().map(|s| &s.root).join(" ")),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Gram::Word(_) => 1,
+            Gram::Sequence(seeds) => seeds.len(),
+        }
+    }
+
+    pub fn count(&self) -> u64 {
+        match self {
+            Gram::Word(seed) => seed.count,
+            Gram::Sequence(seeds) => seeds.iter().map(|s| s.count).sum(),
+        }
+    }
+    pub fn count_mean(&self) -> u64 {
+        match self {
+            Gram::Word(seed) => seed.count,
+            Gram::Sequence(seeds) => {
+                seeds.iter().map(|s| s.count).sum::<u64>() / seeds.len() as u64
+            }
+        }
+    }
+
+    pub fn char_len(&self) -> usize {
+        match self {
+            Gram::Word(seed) => seed.root.chars().count(),
+            Gram::Sequence(seeds) => seeds.iter().map(|s| s.root.chars().count()).sum(),
+        }
+    }
+
+    pub fn cmp_by_lexicographic(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (Gram::Word(s1), Gram::Word(s2)) => s1.root.cmp(&s2.root),
+            (Gram::Sequence(s1), Gram::Sequence(s2)) => {
+                s1.iter().map(|s| &s.root).cmp(s2.iter().map(|s| &s.root))
+            }
+            (Gram::Word(s1), Gram::Sequence(s2)) => {
+                std::iter::once(&s1.root).cmp(s2.iter().map(|s| &s.root))
+            }
+            (Gram::Sequence(s1), Gram::Word(s2)) => {
+                s1.iter().map(|s| &s.root).cmp(std::iter::once(&s2.root))
+            }
+        }
+    }
+    pub fn cmp_by_count(&self, other: &Self) -> std::cmp::Ordering {
+        self.count().cmp(&other.count())
+    }
+    pub fn cmp_by_count_mean(&self, other: &Self) -> std::cmp::Ordering {
+        self.count_mean().cmp(&other.count_mean())
+    }
+    pub fn cmp_by_index(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (Gram::Word(s1), Gram::Word(s2)) => s1.index.cmp(&s2.index),
+            (Gram::Sequence(s1), Gram::Sequence(s2)) => {
+                s1.iter().map(|s| s.index).cmp(s2.iter().map(|s| s.index))
+            }
+            (Gram::Word(s1), Gram::Sequence(s2)) => {
+                std::iter::once(s1.index).cmp(s2.iter().map(|s| s.index))
+            }
+            (Gram::Sequence(s1), Gram::Word(s2)) => {
+                s1.iter().map(|s| s.index).cmp(std::iter::once(s2.index))
+            }
         }
     }
 
