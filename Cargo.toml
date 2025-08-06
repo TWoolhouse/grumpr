@@ -9,12 +9,12 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-itertools = "0.13.0"
+itertools = "0.14.0"
 regex = "1.7.3"
 regex-automata = "0.4.9"
 regex-syntax = "0.8.5"
 smallvec = "1.15.1"
-thiserror = "1.0.40"
+thiserror = "2"
 
 clap = { version = "4.2.1", features = [
 	"cargo",
