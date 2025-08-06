@@ -182,7 +182,7 @@ fn process_cmd_n(
                         rank: index,
                         opts: &opts.inner,
                     };
-                    writeln!(stdout, "{}", show_gram)?;
+                    writeln!(stdout, "{show_gram}",)?;
                 }
 
                 opts.next
@@ -371,7 +371,7 @@ impl<'a, 'l> std::fmt::Display for ShowGram<'a, 'l> {
                 }
             }
             Gram::Sequence(seeds) => {
-                write!(f, "{}", seeds.into_iter().map(|w| &w.root).join(" "))?;
+                write!(f, "{}", seeds.iter().map(|w| &w.root).join(" "))?;
                 if self.opts.rank {
                     write!(f, "\t{}", self.rank)?;
                 }
