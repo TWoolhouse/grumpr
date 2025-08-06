@@ -15,6 +15,16 @@ where
     pub next: Option<Box<U>>,
 }
 
+impl<T, U> ReClap<T, U>
+where
+    T: Args,
+    U: Subcommand,
+{
+    pub fn new(inner: T) -> Self {
+        Self { inner, next: None }
+    }
+}
+
 impl<T, U> Args for ReClap<T, U>
 where
     T: Args,
@@ -54,5 +64,18 @@ where
     }
     fn update_from_arg_matches(&mut self, _matches: &clap::ArgMatches) -> Result<(), clap::Error> {
         unimplemented!()
+    }
+}
+
+impl<T, U> Default for ReClap<T, U>
+where
+    T: Args + Default,
+    U: Subcommand,
+{
+    fn default() -> Self {
+        Self {
+            inner: T::default(),
+            next: None,
+        }
     }
 }
