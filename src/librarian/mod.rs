@@ -1,13 +1,15 @@
 mod library;
-use std::collections::{HashMap, HashSet};
-
 use itertools::Itertools;
 pub use library::Library;
+use std::{collections::HashSet, iter::FusedIterator};
 mod error;
 pub use error::{Error, Result};
 mod grams;
 mod search;
+mod stats;
 pub use search::query;
+pub use stats::Stats;
+mod anagram;
 #[cfg(test)]
 mod test;
 pub use grams::Gram;
@@ -29,6 +31,10 @@ pub struct Seed {
     /// The number of occurrences of this root in the text
     pub count: u64,
 }
+
+// TODO: Become trait over the library and sublib-ref
+// Would allow for mmap the library remove the overhead of
+// cloning the library into a librarian.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Librarian<'l> {
@@ -82,10 +88,7 @@ impl<'l> Librarian<'l> {
             self.search_flat(query)?
         };
 
-        Ok(Self {
-            library: self.library,
-            grams,
-        })
+        Ok(self.child(grams))
     }
     /// Nearest word search
     /// Finds the nearest word to the given pattern using the Levenshtein distance.
@@ -100,13 +103,12 @@ impl<'l> Librarian<'l> {
             .1;
 
         Ok((
-            Self {
-                library: self.library,
-                grams: lgrams
+            self.child(
+                lgrams
                     .into_iter()
                     .filter_map(|(lgram, state_id)| (state_id == distance_id).then_some(lgram))
                     .collect(),
-            },
+            ),
             dist_fn(&dfa, distance_id) as usize,
         ))
     }
@@ -136,35 +138,56 @@ impl<'l> Librarian<'l> {
             self.search_trie(&trie, &dfa, 0)?
         };
 
-        Ok(Self {
-            library: self.library,
-            grams,
-        })
+        Ok(self.child(grams))
     }
 
     /// Find anagrams
     pub fn anagrams(&self, query: &query::Anagram<'_>) -> Result<Self> {
+        // Choose the anagram search method based on the query parameters.
+
         let grams = if query.depth > 0 {
             if query.wildcards > 0 || query.len() >= 8 {
-                let first_pass = self.anagrams_deep(query)?;
-                Self::anagrams_flat(self.library, &first_pass, &query.clone().depth(0))
-                    .cloned()
-                    .collect()
+                // Perform a first pass to build the deep tree whilst filtering some
+                // of the certainly not matching anagrams.
+
+                let trie = Trie::from(self);
+                let dfa = search::automata::anagram_filter(query.pattern)?;
+                let first_pass = self.search_trie(&trie, &dfa, query.depth)?;
+
+                // Perform an expensive anagram search on the first pass results.
+                if query.partial {
+                    anagram::partial(self.library, &first_pass, query.pattern, query.wildcards)
+                        .cloned()
+                        .collect()
+                } else {
+                    anagram::exact(self.library, &first_pass, query.pattern, query.wildcards)
+                        .cloned()
+                        .collect()
+                }
             } else {
-                self.anagrams_fast(query)?
+                let trie = Trie::from(self);
+                anagram::trie_dfa(&trie, query.pattern, query.depth)?
             }
+        } else if query.wildcards > 0 {
+            anagram::exact(self.library, &self.grams, query.pattern, query.wildcards)
+                .cloned()
+                .collect()
         } else if query.partial {
-            self.anagrams_partial(query)?
+            anagram::partial(
+                self.library,
+                self.grams.iter(),
+                query.pattern,
+                query.wildcards,
+            )
+            .cloned()
+            .collect()
         } else {
-            Self::anagrams_flat(self.library, &self.grams, query)
+            anagram::sorted(self.library, &self.grams, query.pattern)
                 .cloned()
                 .collect()
         };
 
-        Ok(Self {
-            library: self.library,
-            grams,
-        })
+        Ok(self.child(grams))
     }
 
     pub fn whitelist<'a>(&self, it: impl IntoIterator<Item = &'a str>) -> Self {
@@ -178,40 +201,19 @@ impl<'l> Librarian<'l> {
     }
 
     pub fn filter<'a>(&self, f: impl FnMut(&'l Seed) -> bool) -> Self {
-        Self {
-            library: self.library,
-            grams: self.filter_seed(f).collect(),
-        }
+        self.child(self.filter_seed(f).collect())
     }
 
     pub fn has(&self, query: &query::Has<'_>) -> Result<Self> {
-        let anagrams = anagrams(self.library, &self.grams);
-
-        let pattern = query.characters.chars().sorted().collect::<String>();
-        let pattern_histogram = pattern.chars().fold(HashMap::new(), |mut acc, c| {
-            *acc.entry(c).or_insert(0) += 1;
-            acc
-        });
-
-        Ok(Self {
-            library: self.library,
-            grams: anagrams
-                .into_values()
-                .filter(|anagram| {
-                    for (c, pcount) in pattern_histogram.iter() {
-                        if let Some(count) = anagram.histogram.get(c) {
-                            if count < pcount {
-                                return false; // Not enough characters
-                            }
-                        } else {
-                            return false; // Character not found
-                        }
-                    }
-                    true // All characters matched
-                })
-                .flat_map(|anagram| anagram.grams)
+        Ok(self.child(
+            anagram::atleast(self.library, self.grams.iter(), query.characters)
+                .cloned()
                 .collect(),
-        })
+        ))
+    }
+
+    pub fn stats(&self) -> Stats {
+        self.into()
     }
 }
 
@@ -235,6 +237,19 @@ impl<'a, 'l: 'a> Iterator for Iter<'a, 'l> {
         self.grams.next().map(|lgram| lgram.as_gram(self.library))
     }
 }
+impl<'a, 'l: 'a> DoubleEndedIterator for Iter<'a, 'l> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.grams
+            .next_back()
+            .map(|lgram| lgram.as_gram(self.library))
+    }
+}
+impl<'a, 'l: 'a> ExactSizeIterator for Iter<'a, 'l> {
+    fn len(&self) -> usize {
+        self.grams.len()
+    }
+}
+impl<'a, 'l: 'a> FusedIterator for Iter<'a, 'l> {}
 
 impl<'a, 'l> IntoIterator for &'a Librarian<'l> {
     type Item = Gram<'l>;
@@ -258,6 +273,19 @@ impl<'l> Iterator for IntoIter<'l> {
         self.grams.next().map(|lgram| lgram.into_gram(self.library))
     }
 }
+impl<'l> DoubleEndedIterator for IntoIter<'l> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.grams
+            .next_back()
+            .map(|lgram| lgram.into_gram(self.library))
+    }
+}
+impl<'l> ExactSizeIterator for IntoIter<'l> {
+    fn len(&self) -> usize {
+        self.grams.len()
+    }
+}
+impl<'l> FusedIterator for IntoIter<'l> {}
 
 impl<'l> IntoIterator for Librarian<'l> {
     type Item = Gram<'l>;
@@ -272,6 +300,13 @@ impl<'l> IntoIterator for Librarian<'l> {
 }
 
 impl<'l> Librarian<'l> {
+    fn child(&self, grams: Vec<LibGram<'l>>) -> Self {
+        Self {
+            library: self.library,
+            grams,
+        }
+    }
+
     fn search_deep(&self, query: &query::Match<'_>) -> Result<Vec<LibGram<'l>>> {
         let trie = Trie::from(self);
         let dfa = regex_automata::dfa::dense::Builder::new().build(query.pattern)?;
@@ -340,99 +375,6 @@ impl<'l> Librarian<'l> {
             .collect())
     }
 
-    fn anagrams_deep(&self, query: &query::Anagram<'_>) -> Result<Vec<LibGram<'l>>> {
-        debug_assert_eq!(
-            query.wildcards, 0,
-            "Not supported yet cause it would dupe the whole trie"
-        );
-        debug_assert_eq!(query.partial, false, "Partial anagram search not supported");
-        let trie = Trie::from(self);
-        let dfa = search::automata::anagram_filter(query.pattern)?;
-        let partial = self.search_trie(&trie, &dfa, query.depth)?;
-
-        Ok(partial)
-    }
-
-    fn anagrams_fast(&self, query: &query::Anagram<'_>) -> Result<Vec<LibGram<'l>>> {
-        debug_assert!(
-            query.len() < 8,
-            "Anagram search is not optimized for long patterns"
-        );
-        debug_assert_eq!(query.wildcards, 0, "idk how to handle this yet");
-        debug_assert_eq!(query.partial, false, "Partial anagram search not supported");
-
-        let trie = Trie::from(self);
-        let dfa = search::automata::anagram(query.pattern)?;
-        self.search_trie(&trie, &dfa, query.depth)
-    }
-
-    fn anagrams_flat<'a>(
-        library: &'l Library,
-        grams: impl IntoIterator<Item = &'a LibGram<'l>>,
-        query: &query::Anagram<'_>,
-    ) -> impl Iterator<Item = &'a LibGram<'l>>
-    where
-        'l: 'a,
-    {
-        debug_assert_eq!(
-            query.wildcards, 0,
-            "Flat anagram search does not support wildcards"
-        );
-        debug_assert_eq!(
-            query.depth, 0,
-            "Flat anagram search does not support repeats"
-        );
-        debug_assert_eq!(
-            query.partial, false,
-            "Flat anagram search does not support partial"
-        );
-        let pattern: String = query.pattern.chars().sorted().collect();
-        grams.into_iter().filter(move |lgram| match lgram {
-            LibGram::Word(idx, ..) => library.seeds[*idx]
-                .root
-                .chars()
-                .sorted()
-                .eq(pattern.chars()),
-            LibGram::Sequence(indices, ..) => {
-                let key = indices.iter().flat_map(|&i| library.seeds[i].root.bytes());
-                key.sorted().eq(pattern.bytes())
-            }
-        })
-    }
-
-    fn anagrams_partial(&self, query: &query::Anagram<'_>) -> Result<Vec<LibGram<'l>>> {
-        debug_assert_eq!(
-            query.depth, 0,
-            "Partial anagram search does not support repeats"
-        );
-
-        let anagrams = anagrams(self.library, &self.grams);
-
-        let pattern = query.pattern.chars().sorted().collect::<String>();
-        let pattern_histogram = pattern.chars().fold(HashMap::new(), |mut acc, c| {
-            *acc.entry(c).or_insert(0) += 1;
-            acc
-        });
-
-        Ok(anagrams
-            .into_values()
-            .filter(|anagram| {
-                let mut wildcards = query.wildcards as isize;
-                for (c, count) in anagram.histogram.iter() {
-                    let pcount = pattern_histogram.get(c).unwrap_or(&0);
-                    if pcount < count {
-                        wildcards -= (count - pcount) as isize;
-                        if wildcards < 0 {
-                            return false; // Too many characters
-                        }
-                    }
-                }
-                true // All characters matched (or partially matched) / we have enough wildcards
-            })
-            .flat_map(|anagram| anagram.grams)
-            .collect())
-    }
-
     fn filter_seed(
         &self,
         mut f: impl FnMut(&'l Seed) -> bool,
@@ -445,40 +387,6 @@ impl<'l> Librarian<'l> {
             })
             .cloned()
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Anagram<'l> {
-    histogram: HashMap<char, usize>,
-    grams: Vec<LibGram<'l>>,
-}
-
-fn anagrams<'a, 'l: 'a>(
-    library: &'l Library,
-    lgrams: impl IntoIterator<Item = &'a LibGram<'l>>,
-) -> HashMap<String, Anagram<'l>> {
-    let mut anagrams: HashMap<String, Anagram<'l>> = HashMap::new();
-    for lgram in lgrams {
-        let key = match lgram {
-            LibGram::Word(idx, ..) => library.seeds[*idx].root.chars().sorted().collect(),
-            LibGram::Sequence(indices, ..) => indices
-                .iter()
-                .flat_map(|&i| library.seeds[i].root.chars())
-                .collect(),
-        };
-        anagrams
-            .entry(key)
-            .or_insert_with_key(|key| Anagram {
-                histogram: key.chars().fold(HashMap::new(), |mut acc, c| {
-                    *acc.entry(c).or_insert(0) += 1;
-                    acc
-                }),
-                grams: Vec::with_capacity(1),
-            })
-            .grams
-            .push(lgram.clone());
-    }
-    anagrams
 }
 
 impl<'a, 'l> From<&'a Librarian<'l>> for Trie<String, &'a LibGram<'l>> {
