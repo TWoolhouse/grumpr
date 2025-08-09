@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use super::{Gram, Librarian};
+#[cfg(feature = "serde")]
 use serde::Serialize;
 
 #[derive(Debug, Default, Clone)]
