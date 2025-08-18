@@ -1,9 +1,9 @@
 use std::io::BufRead;
 
-use grumpr::{Librarian, Library, Seed, librarian::query};
+use grumpr::{librarian::query, Gram, Librarian, Library};
 use include_flate::flate;
 use itertools::Itertools;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use strum::{EnumIter, IntoEnumIterator};
 use wasm_bindgen::prelude::*;
 
@@ -52,14 +52,34 @@ pub enum Command {
     Has(Has),
 }
 
-#[wasm_bindgen]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NGrams {
-    words: Vec<Vec<Seed>>,
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Seed {
+    pub root: String,
+    pub index: usize,
+    pub count: u64,
+}
+
+impl From<&grumpr::Seed> for Seed {
+    fn from(seed: &grumpr::Seed) -> Self {
+        Seed {
+            root: seed.root.clone(),
+            index: seed.index,
+            count: seed.count,
+        }
+    }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NGram {
+    pub seeds: Vec<Seed>,
+    pub count: u64,
+    pub freq: f32,
 }
 
 #[wasm_bindgen]
-pub fn process(library: Option<LibraryID>, commands: Box<[JsValue]>) -> Result<NGrams, String> {
+pub fn process(library: Option<LibraryID>, commands: Box<[JsValue]>) -> Result<JsValue, String> {
     let library: Library = library.unwrap_or_default().into();
     let commands = commands
         .into_iter()
@@ -68,13 +88,31 @@ pub fn process(library: Option<LibraryID>, commands: Box<[JsValue]>) -> Result<N
         .map_err(|err| err.to_string())?;
     let librarian = process_impl((&library).into(), commands).map_err(|err| err.to_string())?;
 
+    // Sort the grams
+    let grams = librarian
+        .into_iter()
+        .sorted_by(Gram::cmp_by_count_mean)
+        .rev();
+
     // Convert into JS compatible format
-    Ok(NGrams {
-        words: librarian
-            .into_iter()
-            .map(|gram| gram.seeds().into_iter().cloned().collect())
-            .collect(),
-    })
+    let mut total_count = 0;
+    let seeds: Vec<(Vec<Seed>, u64)> = grams
+        .map(|gram| {
+            let mean = gram.count_mean();
+            total_count += mean;
+            (gram.seeds().into_iter().map(|s| s.into()).collect(), mean)
+        })
+        .collect();
+
+    let ngrams: Vec<NGram> = seeds
+        .into_iter()
+        .map(|(seeds, mean)| NGram {
+            seeds,
+            count: mean,
+            freq: mean as f32 / total_count as f32,
+        })
+        .collect();
+    Ok(serde_wasm_bindgen::to_value(&ngrams).map_err(|err| err.to_string())?)
 }
 
 fn process_impl<'l>(
