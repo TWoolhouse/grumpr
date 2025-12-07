@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "web"]
+
 [package]
 name = "grumpr"
 version = "0.3.0"

@@ -21,6 +21,3 @@ csv = "1"
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 itertools = "0.14"
-
-[profile.release]
-opt-level = 3
